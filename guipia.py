@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.4"
+CURRENT_VERSION = "v1.1.5"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -3054,8 +3054,15 @@ class ModernApp(ctk.CTk):
                 }
         if "REJ" in self.excel_font_entries and "Sheet4" not in self.excel_font_entries:
             self.excel_font_entries["Sheet4"] = self.excel_font_entries["REJ"]
+
+        # ZMIANA: Zamiast jednego przycisku, dodajemy ramkę z dwoma przyciskami
+        btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
+        btn_frame.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        btn_frame.grid_columnconfigure(0, weight=1)
+        btn_frame.grid_columnconfigure(1, weight=1)
+
         self.excel_start_btn = ctk.CTkButton(
-            parent,
+            btn_frame,
             text="Uruchom układanie Exceli",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -3065,7 +3072,19 @@ class ModernApp(ctk.CTk):
             corner_radius=6,
             command=self.start_excel_pipeline,
         )
-        self.excel_start_btn.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        self.excel_start_btn.grid(row=0, column=0, padx=(0, 5), sticky="ew")
+
+        self.remove_owners_btn = ctk.CTkButton(
+            btn_frame,
+            text="usuwanie właścicieli",
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#8B0000",
+            hover_color="#A52A2A",
+            height=44,
+            corner_radius=6,
+            command=self.start_remove_owners_pipeline,
+        )
+        self.remove_owners_btn.grid(row=0, column=1, padx=(5, 0), sticky="ew")
 
     def setup_layout_excel_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
@@ -3900,6 +3919,11 @@ $form.ShowDialog()
             )
         if self.excel_start_btn is not None:
             self.excel_start_btn.configure(
+                state="disabled", text="Przetwarzanie...", fg_color="#444444"
+            )
+        # --- ZABLOKOWANIE NOWEGO PRZYCISKU ---
+        if hasattr(self, 'remove_owners_btn') and self.remove_owners_btn is not None:
+            self.remove_owners_btn.configure(
                 state="disabled", text="Przetwarzanie...", fg_color="#444444"
             )
         if self.title_generate_btn is not None:
@@ -5300,6 +5324,11 @@ $form.ShowDialog()
             self.excel_start_btn.configure(
                 state="normal", text="Uruchom układanie Exceli", fg_color="#0067C0"
             )
+        # --- ODBLOKOWANIE NOWEGO PRZYCISKU ---
+        if hasattr(self, 'remove_owners_btn') and self.remove_owners_btn is not None:
+            self.remove_owners_btn.configure(
+                state="normal", text="usuwanie właścicieli", fg_color="#8B0000"
+            )
         if self.title_generate_btn is not None:
             self.title_generate_btn.configure(
                 state="normal", text="Masowo twórz strony STR_TYT", fg_color="#0067C0"
@@ -5329,7 +5358,6 @@ $form.ShowDialog()
                 self.tpl_data[mode]["btn_gen"].configure(
                     state="normal", text="Wygeneruj Szablon STR_TYT", fg_color="#27ae60"
                 )
-        # Ukryj panel Live File Stream po 3 sekundach od zakończenia
         if self.stream_frame:
             self.after(3000, lambda: self.stream_frame.grid_remove())
             self.clear_stream()
@@ -5671,6 +5699,114 @@ $form.ShowDialog()
                     ]
             except:
                 pass
+
+    def start_remove_owners_pipeline(self):
+        folder = self.excel_folder_entry.get().strip() if self.excel_folder_entry else ""
+        output_folder = self.excel_output_entry.get().strip() if self.excel_output_entry else ""
+
+        if not folder or not Path(folder).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder źródłowy z plikami Excel.")
+            return
+        if not output_folder:
+            messagebox.showwarning("Błąd", "Wybierz folder docelowy dla zapisanych plików.")
+            return
+        if self.running:
+            return
+
+        self.last_output_dir = Path(output_folder)
+        self._disable_ui_for_process()
+        self.log(f"[EXCEL] URUCHOMIENIE: usuwanie właścicieli z arkuszy Sheet4/REJ\nZ: {folder}")
+        self.set_progress(0)
+
+        include_subfolders = (
+                getattr(self, "include_subfolders_var", None)
+                and self.include_subfolders_var.get()
+        )
+        threading.Thread(
+            target=self.run_remove_owners_thread,
+            args=(folder, output_folder, include_subfolders),
+            daemon=True,
+        ).start()
+
+    def run_remove_owners_thread(self, folder_str, output_folder_str, include_subfolders):
+        import pythoncom
+        pythoncom.CoInitialize()
+        excel = None
+        try:
+            folder = Path(folder_str)
+            output_folder = Path(output_folder_str)
+
+            files = (
+                list(folder.rglob("*.xls*"))
+                if include_subfolders
+                else list(folder.glob("*.xls*"))
+            )
+            files = sorted([f for f in files if f.is_file() and not f.name.startswith("~$")])
+
+            if not files:
+                raise Exception("Brak plików Excel.")
+
+            excel = win32com.client.DispatchEx("Excel.Application")
+            excel.Visible = False
+            excel.DisplayAlerts = False
+            total = len(files)
+
+            for idx, file_path in enumerate(files, start=1):
+                self.check_stop()
+                if is_file_locked(file_path):
+                    self.log(f"POMINIĘTO (Plik zablokowany/otwarty): {file_path.name}")
+                    continue
+
+                self.log(f"Przetwarzanie (właściciele): {file_path.name}")
+                wb = None
+                try:
+                    rel_path = file_path.relative_to(folder)
+                    target_path = output_folder / rel_path
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    if file_path.resolve() != target_path.resolve():
+                        shutil.copy2(file_path, target_path)
+
+                    wb = excel.Workbooks.Open(str(target_path))
+                    wb.CheckCompatibility = False
+
+                    # --- LOGIKA USUWANIA KOLUMNY B ---
+                    for sheet_name in ["Sheet4", "REJ"]:
+                        try:
+                            ws = self.get_sheet_if_exists(wb, sheet_name)
+                            if ws:
+                                ws.Columns("B:B").Delete()
+                                self.log(f"  -> Usunięto kolumnę B z arkusza {sheet_name}")
+                        except Exception as e:
+                            self.log(f"  [Ostrzeżenie] Problem z usunięciem w {sheet_name}: {e}")
+
+                    wb.Close(SaveChanges=True)
+                except Exception as e:
+                    self.log(f"Błąd pliku {file_path.name}: {e}")
+
+                if wb is not None:
+                    try:
+                        wb.Close(SaveChanges=False)
+                    except:
+                        pass
+                self.set_progress(idx / total)
+
+            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
+        except InterruptedError:
+            self.update_status("Przerwano", "#D83B01", animate=False)
+            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+        except Exception as e:
+            self.log(traceback.format_exc())
+            self.update_status("Błąd", "#D83B01", animate=False)
+        finally:
+            if excel is not None:
+                try:
+                    excel.Quit()
+                except:
+                    pass
+            pythoncom.CoUninitialize()
+            self.running = False
+            self.after(0, self.restore_all_buttons)
 
 
 if __name__ == "__main__":
