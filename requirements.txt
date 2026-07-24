@@ -1,0 +1,9 @@
+pyodbc
+customtkinter
+pywin32
+python-docx
+PyMuPDF
+pypdf
+pillow
+pandas
+CTkToolTip
