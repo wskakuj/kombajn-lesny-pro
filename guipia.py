@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.5"
+CURRENT_VERSION = "v1.1.6"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -2236,11 +2236,16 @@ class ModernApp(ctk.CTk):
             dashboard=False,
     ):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(3 if dashboard else 2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -2326,15 +2331,15 @@ class ModernApp(ctk.CTk):
         # DASHBOARD JEŚLI WŁĄCZONY
         current_row = 1
         if dashboard:
-            self.dashboard_frame = ctk.CTkFrame(parent, fg_color="transparent")
+            self.dashboard_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
             self.dashboard_frame.grid(
                 row=current_row, column=0, padx=20, pady=(0, 10), sticky="ew"
             )
             self.build_dashboard_ui(self.dashboard_frame)
             current_row += 1
 
-        btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_frame.grid(row=current_row, column=0, padx=20, pady=5, sticky="ew")
+        btn_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+        btn_frame.grid(row=current_row, column=0, padx=20, pady=(5, 20), sticky="ew")
         btn_frame.grid_columnconfigure(0, weight=1)
         btn = ctk.CTkButton(
             btn_frame,
@@ -2462,11 +2467,16 @@ class ModernApp(ctk.CTk):
 
     def setup_manual_merge_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -2517,7 +2527,7 @@ class ModernApp(ctk.CTk):
             hover_color="#444444",
         ).grid(row=1, column=2, padx=15, pady=(0, 20))
         btn = ctk.CTkButton(
-            parent,
+            scroll_frame,
             text="Zarządzaj układem i scal pliki",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -2527,7 +2537,7 @@ class ModernApp(ctk.CTk):
             hover_color="#005A9E",
             command=self.open_manual_merge_window,
         )
-        btn.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
         add_tooltip(
             btn,
             "Uruchamia interaktywne okno, w którym można poprzesuwać PDF-y góra/dół przed scaleniem.",
@@ -2904,13 +2914,22 @@ class ModernApp(ctk.CTk):
         self.tpl_data[mode_key]["gmina_var"].set(gminy[0])
 
     def setup_excel_tab(self, parent):
+        # Konfiguracja głównej zakładki, aby rozciągała się na całe okno
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        # --- NOWE: Przewijalna ramka (ScrollableFrame) na całą zawartość ---
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         font_sheet = ctk.CTkFont(family="Segoe UI", size=12)
+
+        # ZMIANA: Zamiast 'parent', główna karta jest przypinana do 'scroll_frame'
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -2918,6 +2937,7 @@ class ModernApp(ctk.CTk):
         )
         card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
         card.grid_columnconfigure(1, weight=1)
+
         ctk.CTkLabel(
             card, text="Folder z plikami Excel:", font=font_label, text_color="#E0E0E0"
         ).grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
@@ -2936,6 +2956,7 @@ class ModernApp(ctk.CTk):
             fg_color="#333333",
             hover_color="#444444",
         ).grid(row=0, column=2, padx=15, pady=(15, 8))
+
         ctk.CTkLabel(
             card, text="Folder docelowy:", font=font_label, text_color="#E0E0E0"
         ).grid(row=1, column=0, padx=15, pady=8, sticky="w")
@@ -2956,15 +2977,17 @@ class ModernApp(ctk.CTk):
             fg_color="#333333",
             hover_color="#444444",
         ).grid(row=1, column=2, padx=15, pady=8)
+
         self.include_subfolders_var = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(
             card,
             text="Przetwarzaj także podfoldery",
             variable=self.include_subfolders_var,
         ).grid(row=2, column=0, columnspan=3, padx=15, pady=(2, 10), sticky="w")
+
         fonts_frame = ctk.CTkFrame(card, fg_color="transparent")
         fonts_frame.grid(
-            row=3, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="ew"
+            row=3, column=0, columnspan=3, padx=15, pady=(0, 10), sticky="ew"
         )
         fonts_frame.grid_columnconfigure(0, weight=1)
         fonts_frame.grid_columnconfigure(1, weight=1)
@@ -2975,7 +2998,7 @@ class ModernApp(ctk.CTk):
             text_color="#A0A0A0",
         ).grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky="w")
 
-        # === NOWE: Globalne ustawienie czcionki ===
+        # === Globalne ustawienie czcionki ===
         global_frame = ctk.CTkFrame(
             fonts_frame, fg_color="#1E1E1E", border_width=1, border_color="#333333"
         )
@@ -3005,7 +3028,6 @@ class ModernApp(ctk.CTk):
         )
         self.global_font_entry.insert(0, "10")
         self.global_font_entry.pack(side="left", padx=(0, 10), pady=8)
-        # =========================================
 
         self.excel_font_entries = {}
         left_items = EXCEL_SHEET_DEFAULTS[::2]
@@ -3055,9 +3077,30 @@ class ModernApp(ctk.CTk):
         if "REJ" in self.excel_font_entries and "Sheet4" not in self.excel_font_entries:
             self.excel_font_entries["Sheet4"] = self.excel_font_entries["REJ"]
 
-        # ZMIANA: Zamiast jednego przycisku, dodajemy ramkę z dwoma przyciskami
-        btn_frame = ctk.CTkFrame(parent, fg_color="transparent")
-        btn_frame.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        # === OPCJE USUWANIA KOLUMN ===
+        delete_options_frame = ctk.CTkFrame(card, fg_color="transparent")
+        delete_options_frame.grid(row=4, column=0, columnspan=3, padx=15, pady=(5, 15), sticky="ew")
+
+        ctk.CTkLabel(
+            delete_options_frame, text="Opcje usuwania kolumn (w arkuszach Sheet4 / REJ):", font=font_label, text_color="#A0A0A0"
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
+
+        self.remove_owners_var = ctk.BooleanVar(value=False)
+        self.cb_remove_owners = ctk.CTkCheckBox(
+            delete_options_frame, text="Usuń Właścicieli (wartość 2 w 9. wierszu)", variable=self.remove_owners_var, font=font_sheet, fg_color="#8B0000", hover_color="#A52A2A"
+        )
+        self.cb_remove_owners.grid(row=1, column=0, sticky="w", padx=(0, 20))
+
+        self.remove_ls_var = ctk.BooleanVar(value=False)
+        self.cb_remove_ls = ctk.CTkCheckBox(
+            delete_options_frame, text="Usuń LS (wartość 3 w 9. wierszu)", variable=self.remove_ls_var, font=font_sheet, fg_color="#8B0000", hover_color="#A52A2A"
+        )
+        self.cb_remove_ls.grid(row=1, column=1, sticky="w")
+
+        # === PRZYCISKI ===
+        # ZMIANA: Zamiast 'parent', dolny panel z przyciskami podpinamy pod 'scroll_frame'
+        btn_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+        btn_frame.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew") # Zwiększony dolny margines dla wygody
         btn_frame.grid_columnconfigure(0, weight=1)
         btn_frame.grid_columnconfigure(1, weight=1)
 
@@ -3074,25 +3117,30 @@ class ModernApp(ctk.CTk):
         )
         self.excel_start_btn.grid(row=0, column=0, padx=(0, 5), sticky="ew")
 
-        self.remove_owners_btn = ctk.CTkButton(
+        self.remove_cols_btn = ctk.CTkButton(
             btn_frame,
-            text="usuwanie właścicieli",
+            text="Usuń kolumny (wg zaznaczenia)",
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             fg_color="#8B0000",
             hover_color="#A52A2A",
             height=44,
             corner_radius=6,
-            command=self.start_remove_owners_pipeline,
+            command=self.start_remove_columns_pipeline,
         )
-        self.remove_owners_btn.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+        self.remove_cols_btn.grid(row=0, column=1, padx=(5, 0), sticky="ew")
 
     def setup_layout_excel_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -3183,7 +3231,7 @@ class ModernApp(ctk.CTk):
             hover_color="#444444",
         ).grid(row=3, column=2, padx=15, pady=(8, 15))
         self.layout_merge_btn = ctk.CTkButton(
-            parent,
+            scroll_frame,
             text="Twórz gotowe PDF",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -3193,15 +3241,20 @@ class ModernApp(ctk.CTk):
             corner_radius=6,
             command=self.start_layout_excel_pipeline,
         )
-        self.layout_merge_btn.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        self.layout_merge_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
 
     def setup_split_pdf_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -3290,7 +3343,7 @@ class ModernApp(ctk.CTk):
             hover_color="#444444",
         ).grid(row=3, column=2, padx=15, pady=(8, 15))
         self.split_pdf_btn = ctk.CTkButton(
-            parent,
+            scroll_frame,
             text="Rozdziel na osobne PDF",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -3300,15 +3353,20 @@ class ModernApp(ctk.CTk):
             corner_radius=6,
             command=self.start_split_pdf_pipeline,
         )
-        self.split_pdf_btn.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        self.split_pdf_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
 
     def setup_mdb_update_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -3353,7 +3411,7 @@ class ModernApp(ctk.CTk):
             hover_color="#444444",
         ).grid(row=1, column=2, padx=15, pady=(8, 15))
         self.mdb_start_btn = ctk.CTkButton(
-            parent,
+            scroll_frame,
             text="Usuń 0 w bazach (MDB)",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -3363,16 +3421,21 @@ class ModernApp(ctk.CTk):
             corner_radius=6,
             command=self.start_mdb_update_pipeline,
         )
-        self.mdb_start_btn.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        self.mdb_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
 
     def setup_pdf_converter_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         font_hint = ctk.CTkFont(family="Segoe UI", size=12)
         card_frame = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -3434,7 +3497,7 @@ class ModernApp(ctk.CTk):
             card_frame, text=info_text, font=font_hint, text_color="#888888"
         ).grid(row=2, column=0, columnspan=3, padx=15, pady=(0, 20), sticky="w")
         self.pdfconv_start_btn = ctk.CTkButton(
-            parent,
+            scroll_frame,
             text="Konwertuj wszystko do PDF",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -3444,15 +3507,20 @@ class ModernApp(ctk.CTk):
             corner_radius=6,
             command=self.start_pdf_converter_pipeline,
         )
-        self.pdfconv_start_btn.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        self.pdfconv_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
 
     def setup_mietek_title_pages_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -3548,7 +3616,7 @@ class ModernApp(ctk.CTk):
         )
         self.mietek_title_area_placeholder_entry.insert(0, "powierzchnia")
         self.mietek_title_generate_btn = ctk.CTkButton(
-            parent,
+            scroll_frame,
             text="Masowo twórz strony STR_TYT",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -3559,16 +3627,21 @@ class ModernApp(ctk.CTk):
             command=self.start_mietek_title_pages_pipeline,
         )
         self.mietek_title_generate_btn.grid(
-            row=1, column=0, padx=20, pady=5, sticky="ew"
+            row=1, column=0, padx=20, pady=(5, 20), sticky="ew"
         )
 
     def setup_title_pages_tab(self, parent):
         parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(2, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         font_btn = ctk.CTkFont(family="Segoe UI", size=13)
         card = ctk.CTkFrame(
-            parent,
+            scroll_frame,
             fg_color="#252526",
             corner_radius=8,
             border_width=1,
@@ -3662,7 +3735,7 @@ class ModernApp(ctk.CTk):
         )
         self.title_area_placeholder_entry.insert(0, "powierzchnia")
         self.title_generate_btn = ctk.CTkButton(
-            parent,
+            scroll_frame,
             text="Masowo twórz strony STR_TYT",
             image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
@@ -3672,7 +3745,7 @@ class ModernApp(ctk.CTk):
             corner_radius=6,
             command=self.start_title_pages_pipeline,
         )
-        self.title_generate_btn.grid(row=1, column=0, padx=20, pady=5, sticky="ew")
+        self.title_generate_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
 
     def select_dir(self, entry_widget):
         folder = filedialog.askdirectory()
@@ -3921,11 +3994,15 @@ $form.ShowDialog()
             self.excel_start_btn.configure(
                 state="disabled", text="Przetwarzanie...", fg_color="#444444"
             )
-        # --- ZABLOKOWANIE NOWEGO PRZYCISKU ---
-        if hasattr(self, 'remove_owners_btn') and self.remove_owners_btn is not None:
-            self.remove_owners_btn.configure(
+        # --- ZABLOKOWANIE PRZYCISKU USUWANIA ---
+        if hasattr(self, 'remove_cols_btn') and self.remove_cols_btn is not None:
+            self.remove_cols_btn.configure(
                 state="disabled", text="Przetwarzanie...", fg_color="#444444"
             )
+        if hasattr(self, 'cb_remove_owners'):
+            self.cb_remove_owners.configure(state="disabled")
+            self.cb_remove_ls.configure(state="disabled")
+
         if self.title_generate_btn is not None:
             self.title_generate_btn.configure(
                 state="disabled", text="Przetwarzanie...", fg_color="#444444"
@@ -5324,11 +5401,15 @@ $form.ShowDialog()
             self.excel_start_btn.configure(
                 state="normal", text="Uruchom układanie Exceli", fg_color="#0067C0"
             )
-        # --- ODBLOKOWANIE NOWEGO PRZYCISKU ---
-        if hasattr(self, 'remove_owners_btn') and self.remove_owners_btn is not None:
-            self.remove_owners_btn.configure(
-                state="normal", text="usuwanie właścicieli", fg_color="#8B0000"
+        # --- ODBLOKOWANIE PRZYCISKU I CHECKBOXÓW USUWANIA ---
+        if hasattr(self, 'remove_cols_btn') and self.remove_cols_btn is not None:
+            self.remove_cols_btn.configure(
+                state="normal", text="Usuń kolumny (wg zaznaczenia)", fg_color="#8B0000"
             )
+        if hasattr(self, 'cb_remove_owners'):
+            self.cb_remove_owners.configure(state="normal")
+            self.cb_remove_ls.configure(state="normal")
+
         if self.title_generate_btn is not None:
             self.title_generate_btn.configure(
                 state="normal", text="Masowo twórz strony STR_TYT", fg_color="#0067C0"
@@ -5700,7 +5781,7 @@ $form.ShowDialog()
             except:
                 pass
 
-    def start_remove_owners_pipeline(self):
+    def start_remove_columns_pipeline(self):
         folder = self.excel_folder_entry.get().strip() if self.excel_folder_entry else ""
         output_folder = self.excel_output_entry.get().strip() if self.excel_output_entry else ""
 
@@ -5710,12 +5791,20 @@ $form.ShowDialog()
         if not output_folder:
             messagebox.showwarning("Błąd", "Wybierz folder docelowy dla zapisanych plików.")
             return
+
+        remove_owners = self.remove_owners_var.get()
+        remove_ls = self.remove_ls_var.get()
+
+        if not remove_owners and not remove_ls:
+            messagebox.showwarning("Brak wyboru", "Zaznacz przynajmniej jedną opcję usuwania (Właściciele lub LS).")
+            return
+
         if self.running:
             return
 
         self.last_output_dir = Path(output_folder)
         self._disable_ui_for_process()
-        self.log(f"[EXCEL] URUCHOMIENIE: usuwanie właścicieli z arkuszy Sheet4/REJ\nZ: {folder}")
+        self.log(f"[EXCEL] URUCHOMIENIE: usuwanie określonych kolumn z arkuszy Sheet4 / REJ\nZ: {folder}")
         self.set_progress(0)
 
         include_subfolders = (
@@ -5723,12 +5812,12 @@ $form.ShowDialog()
                 and self.include_subfolders_var.get()
         )
         threading.Thread(
-            target=self.run_remove_owners_thread,
-            args=(folder, output_folder, include_subfolders),
+            target=self.run_remove_columns_thread,
+            args=(folder, output_folder, include_subfolders, remove_owners, remove_ls),
             daemon=True,
         ).start()
 
-    def run_remove_owners_thread(self, folder_str, output_folder_str, include_subfolders):
+    def run_remove_columns_thread(self, folder_str, output_folder_str, include_subfolders, remove_owners, remove_ls):
         import pythoncom
         pythoncom.CoInitialize()
         excel = None
@@ -5751,13 +5840,18 @@ $form.ShowDialog()
             excel.DisplayAlerts = False
             total = len(files)
 
+            # Lista wartości do usunięcia
+            values_to_delete = []
+            if remove_owners: values_to_delete.append(2)
+            if remove_ls: values_to_delete.append(3)
+
             for idx, file_path in enumerate(files, start=1):
                 self.check_stop()
                 if is_file_locked(file_path):
                     self.log(f"POMINIĘTO (Plik zablokowany/otwarty): {file_path.name}")
                     continue
 
-                self.log(f"Przetwarzanie (właściciele): {file_path.name}")
+                self.log(f"Przetwarzanie (usuwanie kolumn): {file_path.name}")
                 wb = None
                 try:
                     rel_path = file_path.relative_to(folder)
@@ -5770,13 +5864,25 @@ $form.ShowDialog()
                     wb = excel.Workbooks.Open(str(target_path))
                     wb.CheckCompatibility = False
 
-                    # --- LOGIKA USUWANIA KOLUMNY B ---
+                    # --- LOGIKA USUWANIA KOLUMN ---
                     for sheet_name in ["Sheet4", "REJ"]:
                         try:
                             ws = self.get_sheet_if_exists(wb, sheet_name)
                             if ws:
-                                ws.Columns("B:B").Delete()
-                                self.log(f"  -> Usunięto kolumnę B z arkusza {sheet_name}")
+                                # Skrypt sprawdza kolumny od 50 w dół, do 1.
+                                # Robimy to od tyłu, żeby przesunięcie kolumn (po usunięciu)
+                                # nie popsuło indeksów dla pozostałych kolumn.
+                                for col in range(50, 0, -1):
+                                    cell_val = ws.Cells(9, col).Value
+                                    if cell_val is not None:
+                                        try:
+                                            # Rzutujemy ew. wartość float 2.0 na integer 2
+                                            val_int = int(float(cell_val))
+                                            if val_int in values_to_delete:
+                                                ws.Columns(col).Delete()
+                                                self.log(f"  -> Usunięto kolumnę {col} (znaleziono wartość {val_int} w wierszu 9) z arkusza {sheet_name}")
+                                        except Exception:
+                                            pass
                         except Exception as e:
                             self.log(f"  [Ostrzeżenie] Problem z usunięciem w {sheet_name}: {e}")
 
