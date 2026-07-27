@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.2.1"
+CURRENT_VERSION = "v1.2.2"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -4187,8 +4187,10 @@ class ModernApp(ctk.CTk):
                     $form.Refresh()
                     Start-Sleep -Seconds 1
 
-                    # Zwykłe, proste uruchomienie (bez kombinacji)
-                    Start-Process -FilePath $exePath
+                    # --- OSTATECZNE URUCHOMIENIE (100% ODPORNE NA BŁĘDY) ---
+                    # Używamy formatowania, żeby nie tworzyć potrójnych cudzysłowów groźnych dla Pythona
+                    $argList = '"{0}"' -f $exePath
+                    Start-Process -FilePath "explorer.exe" -ArgumentList $argList
 
                 }} catch {{
                     $label.Text = "Wystąpił błąd podczas aktualizacji."
@@ -4201,13 +4203,18 @@ class ModernApp(ctk.CTk):
             }})
             $form.ShowDialog()
             """
-            # --- OSTATECZNA POPRAWKA: Filtrowanie środowiska w Pythonie ---
+            # --- OSTATECZNA POPRAWKA: Filtrowanie środowiska w Pythonie (w tym PATH) ---
             clean_env = os.environ.copy()
             toxic_vars = ["_MEIPASS", "_MEIPASS2", "TCL_LIBRARY", "TK_LIBRARY", "_PYVENV_LAUNCHER_"]
             for var in toxic_vars:
                 if var in clean_env:
                     del clean_env[var]
-            # --------------------------------------------------------------
+
+            # Dodatkowo musimy wyciąć usunięty folder ze zmiennej PATH!
+            if hasattr(sys, '_MEIPASS'):
+                path_elements = clean_env.get("PATH", "").split(os.pathsep)
+                clean_env["PATH"] = os.pathsep.join([p for p in path_elements if p != sys._MEIPASS])
+            # -------------------------------------------------------------------------
 
             subprocess.Popen(
                 [
@@ -4218,7 +4225,7 @@ class ModernApp(ctk.CTk):
                     "-Command",
                     ps_script,
                 ],
-                env=clean_env,  # <-- PRZEKAZUJEMY OCZYSZCZONE ŚRODOWISKO
+                env=clean_env,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             self.destroy()
