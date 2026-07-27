@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.99"
+CURRENT_VERSION = "v1.2.0"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -4202,7 +4202,6 @@ class ModernApp(ctk.CTk):
             $form.ShowDialog()
             """
             # --- OSTATECZNA POPRAWKA: Filtrowanie środowiska w Pythonie ---
-            import os
             clean_env = os.environ.copy()
             toxic_vars = ["_MEIPASS", "_MEIPASS2", "TCL_LIBRARY", "TK_LIBRARY", "_PYVENV_LAUNCHER_"]
             for var in toxic_vars:
