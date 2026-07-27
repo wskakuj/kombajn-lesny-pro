@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.96b"
+CURRENT_VERSION = "v1.1.98"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -4113,107 +4113,103 @@ class ModernApp(ctk.CTk):
             b64_changelog = base64.b64encode(changelog_data.encode("utf-8")).decode("utf-8")
 
             ps_script = f"""
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$form = New-Object System.Windows.Forms.Form
-$form.Text = "Aktualizator Kombajn Leśny PRO"
-$form.Size = New-Object System.Drawing.Size(480, 160)
-$form.StartPosition = "CenterScreen"
-$form.FormBorderStyle = "FixedToolWindow"
-$form.BackColor = [System.Drawing.Color]::FromArgb(37, 37, 38)
-$form.ForeColor = [System.Drawing.Color]::White
-$form.TopMost = $true
-$label = New-Object System.Windows.Forms.Label
-$label.Location = New-Object System.Drawing.Point(20, 20)
-$label.Size = New-Object System.Drawing.Size(440, 30)
-$label.Font = New-Object System.Drawing.Font("Segoe UI", 11)
-$label.Text = "Czekam na zamknięcie starej wersji programu..."
-$form.Controls.Add($label)
-$progressBar = New-Object System.Windows.Forms.ProgressBar
-$progressBar.Location = New-Object System.Drawing.Point(20, 60)
-$progressBar.Size = New-Object System.Drawing.Size(420, 20)
-$progressBar.Style = "Marquee"
-$progressBar.MarqueeAnimationSpeed = 30
-$form.Controls.Add($progressBar)
-$form.Add_Shown({{
-    $form.Refresh()
-    $pidToWait = {pid}
-    while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
-        [System.Windows.Forms.Application]::DoEvents()
-        Start-Sleep -Milliseconds 200
-    }}
-    $label.Text = "Pobieranie nowej wersji. To może chwilę potrwać..."
-    $form.Refresh()
-    $exePath = "{safe_exe_path}"
-    $targetDir = [System.IO.Path]::GetDirectoryName($exePath)
-    $tempExe = "$env:TEMP\\Kombajn_Najnowszy.exe"
-    $url = "{url}"
-    try {{
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        $webClient = New-Object System.Net.WebClient
-        $webClient.DownloadFileAsync([uri]$url, $tempExe)
-        while ($webClient.IsBusy) {{
-            [System.Windows.Forms.Application]::DoEvents()
-            Start-Sleep -Milliseconds 50
-        }}
-        $file = Get-Item $tempExe -ErrorAction SilentlyContinue
-        if ($null -eq $file -or ($file.Length / 1MB) -lt 10) {{
-            $label.Text = "BŁĄD: Pobrany plik jest uszkodzony."
-            $label.ForeColor = [System.Drawing.Color]::Red
-            $progressBar.Style = "Blocks"
-            $form.Refresh()
-            Start-Sleep -Seconds 5
-            $form.Close()
-            exit 1
-        }}
-        $label.Text = "Pobrano poprawnie. Podmiana plików..."
-        $form.Refresh()
-        Start-Sleep -Milliseconds 500
+            Add-Type -AssemblyName System.Windows.Forms
+            Add-Type -AssemblyName System.Drawing
+            $form = New-Object System.Windows.Forms.Form
+            $form.Text = "Aktualizator Kombajn Leśny PRO"
+            $form.Size = New-Object System.Drawing.Size(480, 160)
+            $form.StartPosition = "CenterScreen"
+            $form.FormBorderStyle = "FixedToolWindow"
+            $form.BackColor = [System.Drawing.Color]::FromArgb(37, 37, 38)
+            $form.ForeColor = [System.Drawing.Color]::White
+            $form.TopMost = $true
+            $label = New-Object System.Windows.Forms.Label
+            $label.Location = New-Object System.Drawing.Point(20, 20)
+            $label.Size = New-Object System.Drawing.Size(440, 30)
+            $label.Font = New-Object System.Drawing.Font("Segoe UI", 11)
+            $label.Text = "Czekam na zamknięcie starej wersji programu..."
+            $form.Controls.Add($label)
+            $progressBar = New-Object System.Windows.Forms.ProgressBar
+            $progressBar.Location = New-Object System.Drawing.Point(20, 60)
+            $progressBar.Size = New-Object System.Drawing.Size(420, 20)
+            $progressBar.Style = "Marquee"
+            $progressBar.MarqueeAnimationSpeed = 30
+            $form.Controls.Add($progressBar)
+            $form.Add_Shown({{
+                $form.Refresh()
+                $pidToWait = {pid}
+                while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{
+                    [System.Windows.Forms.Application]::DoEvents()
+                    Start-Sleep -Milliseconds 200
+                }}
+                $label.Text = "Pobieranie nowej wersji. To może chwilę potrwać..."
+                $form.Refresh()
+                $exePath = "{safe_exe_path}"
+                $targetDir = [System.IO.Path]::GetDirectoryName($exePath)
+                $tempExe = "$env:TEMP\\Kombajn_Najnowszy.exe"
+                $url = "{url}"
+                try {{
+                    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                    $webClient = New-Object System.Net.WebClient
+                    $webClient.DownloadFileAsync([uri]$url, $tempExe)
+                    while ($webClient.IsBusy) {{
+                        [System.Windows.Forms.Application]::DoEvents()
+                        Start-Sleep -Milliseconds 50
+                    }}
+                    $file = Get-Item $tempExe -ErrorAction SilentlyContinue
+                    if ($null -eq $file -or ($file.Length / 1MB) -lt 10) {{
+                        $label.Text = "BŁĄD: Pobrany plik jest uszkodzony."
+                        $label.ForeColor = [System.Drawing.Color]::Red
+                        $progressBar.Style = "Blocks"
+                        $form.Refresh()
+                        Start-Sleep -Seconds 5
+                        $form.Close()
+                        exit 1
+                    }}
+                    $label.Text = "Pobrano poprawnie. Podmiana plików..."
+                    $form.Refresh()
+                    Start-Sleep -Milliseconds 500
 
-        # Podmiana pliku EXE
-        Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
-        Move-Item -Path $tempExe -Destination $exePath -Force
+                    # Podmiana pliku EXE
+                    Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
+                    Move-Item -Path $tempExe -Destination $exePath -Force
 
-        # Zapisz plik changelogu w folderze docelowym EXE
-        $changelogFile = Join-Path $targetDir "pending_changelog.json"
-        $b64Data = "{b64_changelog}"
-        $jsonBytes = [System.Convert]::FromBase64String($b64Data)
-        [System.IO.File]::WriteAllBytes($changelogFile, $jsonBytes)
+                    # Zapisz plik changelogu w folderze docelowym EXE
+                    $changelogFile = Join-Path $targetDir "pending_changelog.json"
+                    $b64Data = "{b64_changelog}"
+                    $jsonBytes = [System.Convert]::FromBase64String($b64Data)
+                    [System.IO.File]::WriteAllBytes($changelogFile, $jsonBytes)
 
-        $label.Text = "Zakończono! Uruchamianie nowej wersji..."
-        $label.ForeColor = [System.Drawing.Color]::LightGreen
-        $progressBar.Style = "Blocks"
-        $progressBar.Value = 100
-        $form.Refresh()
-        Start-Sleep -Seconds 1
+                    $label.Text = "Zakończono! Uruchamianie nowej wersji..."
+                    $label.ForeColor = [System.Drawing.Color]::LightGreen
+                    $progressBar.Style = "Blocks"
+                    $progressBar.Value = 100
+                    $form.Refresh()
+                    Start-Sleep -Seconds 1
 
-        # Poczekaj aż stary proces zwolni pliki
-        Start-Sleep -Seconds 2
+                    # Zwykłe, proste uruchomienie (bez kombinacji)
+                    Start-Process -FilePath $exePath
 
-        # Rygorystyczne wyczyszczenie zmiennych środowiskowych (podwójne ukośniki dla Pythona)
-        Remove-Item -Path "Env:\\_MEIPASS2" -ErrorAction SilentlyContinue
-        Remove-Item -Path "Env:\\_MEIPASS" -ErrorAction SilentlyContinue
-        Remove-Item -Path "Env:\\TCL_LIBRARY" -ErrorAction SilentlyContinue
-        Remove-Item -Path "Env:\\TK_LIBRARY" -ErrorAction SilentlyContinue
-        Remove-Item -Path "Env:\\_PYVENV_LAUNCHER_" -ErrorAction SilentlyContinue
-        
-        Start-Sleep -Seconds 1
-        
-        # Bezpieczne budowanie argumentu i uruchomienie nowej wersji przez Eksplorator
-        $argList = '"{0}"' -f $exePath
-        Start-Process explorer.exe -ArgumentList $argList
+                }} catch {{
+                    $label.Text = "Wystąpił błąd podczas aktualizacji."
+                    $label.ForeColor = [System.Drawing.Color]::Red
+                    $progressBar.Style = "Blocks"
+                    $form.Refresh()
+                    Start-Sleep -Seconds 5
+                }}
+                $form.Close()
+            }})
+            $form.ShowDialog()
+            """
+            # --- OSTATECZNA POPRAWKA: Filtrowanie środowiska w Pythonie ---
+            import os
+            clean_env = os.environ.copy()
+            toxic_vars = ["_MEIPASS", "_MEIPASS2", "TCL_LIBRARY", "TK_LIBRARY", "_PYVENV_LAUNCHER_"]
+            for var in toxic_vars:
+                if var in clean_env:
+                    del clean_env[var]
+            # --------------------------------------------------------------
 
-    }} catch {{
-        $label.Text = "Wystąpił błąd podczas aktualizacji."
-        $label.ForeColor = [System.Drawing.Color]::Red
-        $progressBar.Style = "Blocks"
-        $form.Refresh()
-        Start-Sleep -Seconds 5
-    }}
-    $form.Close()
-}})
-$form.ShowDialog()
-"""
             subprocess.Popen(
                 [
                     "powershell",
@@ -4223,6 +4219,7 @@ $form.ShowDialog()
                     "-Command",
                     ps_script,
                 ],
+                env=clean_env,  # <-- PRZEKAZUJEMY OCZYSZCZONE ŚRODOWISKO
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             self.destroy()
