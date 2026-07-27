@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.92"
+CURRENT_VERSION = "v1.1.94"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1345,7 +1345,7 @@ class ChangelogWindow(ctk.CTkToplevel):
 
         ctk.CTkButton(
             bottom_frame,
-            text="Świetnie, rozumiem!",
+            text="Zamknij",
             command=self.destroy,
             fg_color="#0067C0",
             hover_color="#005A9E",
@@ -4104,11 +4104,16 @@ $form.Add_Shown({{
         $form.Refresh()
         Start-Sleep -Seconds 1
         
+        # Poczekaj aż stary proces zwolni pliki
+        Start-Sleep -Seconds 2
+
+        # Wyczyść zmienne PyInstallera i uruchom nowy EXE przez shell użytkownika
         $env:_MEIPASS2 = $null
         $env:_MEIPASS = $null
         $env:TCL_LIBRARY = $null
         $env:TK_LIBRARY = $null
-        Start-Process -FilePath $exePath
+        Start-Sleep -Seconds 2
+        Start-Process -FilePath $exePath -WorkingDirectory $targetDir
         
     }} catch {{
         $label.Text = "Wystąpił błąd podczas aktualizacji."
@@ -4121,16 +4126,14 @@ $form.Add_Shown({{
 }})
 $form.ShowDialog()
 """
-            ps_file = Path(tempfile.gettempdir()) / "updater_kombajn.ps1"
-            ps_file.write_text(ps_script, encoding="utf-8-sig")
             subprocess.Popen(
                 [
                     "powershell",
+                    "-NoProfile",
                     "-ExecutionPolicy",
                     "Bypass",
-                    "-NoProfile",
-                    "-File",
-                    str(ps_file),
+                    "-Command",
+                    ps_script,
                 ],
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
