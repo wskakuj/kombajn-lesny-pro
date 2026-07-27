@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.8"
+CURRENT_VERSION = "v1.1.9"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1293,7 +1293,7 @@ class ChangelogWindow(ctk.CTkToplevel):
         self.geometry("600x450")
         self.resizable(False, False)
         
-        # Wycentrowanie okna względem ekranu
+        # Wycentrowanie okna
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         x = (screen_width - 600) // 2
@@ -1323,7 +1323,7 @@ class ChangelogWindow(ctk.CTkToplevel):
             text_color="#A0A0A0"
         ).pack(anchor="w", pady=(4, 0))
 
-        # Pole tekstowe z opisem zmian (Changelog)
+        # Treść opisu zmian
         self.textbox = ctk.CTkTextbox(
             self,
             font=ctk.CTkFont(family="Segoe UI", size=12),
@@ -1335,12 +1335,11 @@ class ChangelogWindow(ctk.CTkToplevel):
         )
         self.textbox.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="nsew")
         
-        # Wstawienie opisu zmian
         content = changelog_text.strip() if changelog_text and changelog_text.strip() else "Brak szczegółowego opisu zmian dla tej wersji."
         self.textbox.insert("0.0", content)
         self.textbox.configure(state="disabled")
 
-        # Przycisk "Rozumiem / Zamknij"
+        # Przycisk zamknięcia
         bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
         bottom_frame.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="e")
 
@@ -1356,7 +1355,18 @@ class ChangelogWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         ).pack(side="right")
 
-        self.grab_set()
+        # --- KLUCZOWA POPRAWKA PRZYCIĄGANIA UWAGI / OTWIERANIA NA WIERZCHU ---
+        self.grab_set()             # Przejmuje zdarzenia myszy i klawiatury
+        self.lift()                 # Podnosi okno na wierzch stosu okien Tkintera
+        try:
+            self.focus_force()      # Wymusza ostrość systemu Windows
+        except Exception:
+            pass
+        try:
+            self.attributes("-topmost", True)  # Przypina na wierzch na czas otwarcia
+            self.after(200, lambda: self.attributes("-topmost", False)) # Zdejmuje twardy priorytet
+        except Exception:
+            pass
 
 
 class ModernApp(ctk.CTk):
@@ -1456,7 +1466,6 @@ class ModernApp(ctk.CTk):
         self.after(2000, lambda: self.check_github_update(manual=False))
 
     def check_pending_changelog(self):
-        # Ustalamy właściwy folder, w którym leży plik .exe (lub plik .py w dev)
         if getattr(sys, "frozen", False):
             app_dir = Path(sys.executable).resolve().parent
         else:
@@ -1470,16 +1479,26 @@ class ModernApp(ctk.CTk):
                 version = data.get("version", CURRENT_VERSION)
                 changelog_text = data.get("changelog", "")
 
-                # Wyświetlamy okno po załadowaniu głównego GUI
-                self.after(600, lambda: ChangelogWindow(self, version, changelog_text))
+                # Funkcja wywołująca okno dopiero po pełnym załadowaniu interfejsu
+                def _show_window():
+                    try:
+                        win = ChangelogWindow(self, version, changelog_text)
+                    except Exception as err:
+                        print(f"[INFO] Błąd wyrysowania okna changelogu: {err}")
+
+                # Wywołujemy po 1.5 sekundy od uruchomienia aplikacji
+                self.after(1500, _show_window)
+
             except Exception as e:
                 print(f"[INFO] Błąd odczytu pliku changelogu: {e}")
             finally:
-                # Czyszczenie pliku, aby okno nie wyskakiwało przy kolejnych uruchomieniach
-                try:
-                    changelog_file.unlink(missing_ok=True)
-                except Exception:
-                    pass
+                # Plik usuwamy dopiero po lekkim opóźnieniu, dając czas na jego przeczytanie
+                def _safe_unlink():
+                    try:
+                        changelog_file.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                self.after(3000, _safe_unlink)
 
     # --- METODY DLA HISTORII I DASHBOARDU ---
     def load_history(self):
