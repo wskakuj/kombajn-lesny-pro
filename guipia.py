@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.2.23"
+CURRENT_VERSION = "v1.2.24"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -2073,11 +2073,55 @@ class ModernApp(ctk.CTk):
             "0.0", "System aktywny. Skonfiguruj proces i rozpocznij działanie.\n"
         )
         self.textbox.configure(state="disabled")
-        self.progress_bar = ctk.CTkProgressBar(
-            log_frame, mode="determinate", height=8, progress_color="#0078D7"
+        # === NOWY PASEK POSTĘPU ZE SZCZEGÓŁAMI ===
+        progress_container = ctk.CTkFrame(log_frame, fg_color="transparent")
+        progress_container.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="ew")
+        progress_container.grid_columnconfigure(0, weight=1)
+
+        progress_info = ctk.CTkFrame(progress_container, fg_color="transparent")
+        progress_info.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        progress_info.grid_columnconfigure(1, weight=1)
+
+        self.progress_percent_label = ctk.CTkLabel(
+            progress_info,
+            text="0%",
+            width=45,
+            anchor="w",
+            font=ctk.CTkFont(family="Consolas", size=11, weight="bold"),
+            text_color="#0078D7",
         )
-        self.progress_bar.grid(row=2, column=0, padx=15, pady=(0, 15), sticky="ew")
+        self.progress_percent_label.grid(row=0, column=0, sticky="w")
+
+        self.progress_detail_label = ctk.CTkLabel(
+            progress_info,
+            text="Oczekiwanie na zadanie",
+            anchor="w",
+            font=ctk.CTkFont(family="Segoe UI", size=11),
+            text_color="#A0A0A0",
+        )
+        self.progress_detail_label.grid(row=0, column=1, sticky="w", padx=(8, 8))
+
+        self.progress_eta_label = ctk.CTkLabel(
+            progress_info,
+            text="",
+            width=160,
+            anchor="e",
+            font=ctk.CTkFont(family="Consolas", size=11),
+            text_color="#888888",
+        )
+        self.progress_eta_label.grid(row=0, column=2, sticky="e")
+
+        self.progress_bar = ctk.CTkProgressBar(
+            progress_container, mode="determinate", height=8, progress_color="#0078D7"
+        )
+        self.progress_bar.grid(row=1, column=0, sticky="ew")
         self.progress_bar.set(0)
+
+        self.progress_total = 0
+        self.progress_current = 0
+        self.progress_start_time = None
+        self.progress_current_file = None
+        self.progress_description = ""
 
         # === LIVE FILE STREAM PANEL ===
         self.bottom_panel.grid_rowconfigure(0, weight=1)
@@ -4039,8 +4083,117 @@ class ModernApp(ctk.CTk):
 
         return proceed_evt.is_set()
 
-    def set_progress(self, value):
-        self.after(0, lambda: self.progress_bar.set(value))
+    def set_progress(self, value, current_file=None, current=None, total=None, description=None):
+        if total is not None:
+            self.progress_total = max(0, int(total))
+
+        if current is not None:
+            self.progress_current = max(0, int(current))
+        elif value is not None and self.progress_total:
+            self.progress_current = int(round(float(value) * self.progress_total))
+
+        if current_file is not None:
+            self.progress_current_file = str(current_file)
+
+        if description is not None:
+            self.progress_description = str(description)
+
+        try:
+            bar_value = max(0.0, min(1.0, float(value)))
+        except Exception:
+            bar_value = 0.0
+
+        def _update():
+            try:
+                self.progress_bar.set(bar_value)
+                self.progress_percent_label.configure(text=f"{int(round(bar_value * 100))}%")
+                self.progress_detail_label.configure(text=self._build_progress_detail())
+                self.progress_eta_label.configure(text=self._calculate_progress_eta())
+            except Exception:
+                pass
+
+        self.after(0, _update)
+
+    def start_progress_tracking(self, total, description=""):
+        self.progress_total = max(0, int(total))
+        self.progress_current = 0
+        self.progress_start_time = time.time()
+        self.progress_current_file = None
+        self.progress_description = description
+        self.set_progress(0, current=0, total=self.progress_total, description=description)
+
+    def reset_progress_details(self, text="Oczekiwanie na zadanie"):
+        self.progress_total = 0
+        self.progress_current = 0
+        self.progress_start_time = None
+        self.progress_current_file = None
+        self.progress_description = ""
+
+        def _reset():
+            try:
+                self.progress_bar.set(0)
+                self.progress_percent_label.configure(text="0%")
+                self.progress_detail_label.configure(text=text)
+                self.progress_eta_label.configure(text="")
+            except Exception:
+                pass
+
+        self.after(0, _reset)
+
+    def _build_progress_detail(self):
+        parts = []
+
+        if getattr(self, "progress_description", ""):
+            parts.append(self.progress_description)
+
+        if getattr(self, "progress_total", 0) > 0:
+            parts.append(
+                f"Przetwarzanie: {getattr(self, 'progress_current', 0)} / {self.progress_total}"
+            )
+
+        if getattr(self, "progress_current_file", None):
+            parts.append(f"Plik: {self.progress_current_file}")
+
+        return "   |   ".join(parts) if parts else "Oczekiwanie na zadanie"
+
+    def _calculate_progress_eta(self):
+        total = getattr(self, "progress_total", 0)
+        current = getattr(self, "progress_current", 0)
+        start_time = getattr(self, "progress_start_time", None)
+
+        if not total or current <= 0 or not start_time:
+            return ""
+
+        elapsed = time.time() - start_time
+        if elapsed <= 0:
+            return ""
+
+        rate = current / elapsed
+        if rate <= 0:
+            return ""
+
+        remaining = max(0, total - current)
+        eta_seconds = remaining / rate
+
+        return f"Pozostało: {self._format_duration(eta_seconds)}"
+
+    @staticmethod
+    def _format_duration(seconds):
+        seconds = max(0, int(round(seconds)))
+
+        if seconds < 60:
+            return f"~{seconds} s"
+
+        if seconds < 3600:
+            return f"~{seconds // 60} min"
+
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+
+        if minutes:
+            return f"~{hours} h {minutes} min"
+
+        return f"~{hours} h"
 
     def open_mode_order_window(self, mode_key, output_root):
         if not output_root:
@@ -4458,6 +4611,7 @@ class ModernApp(ctk.CTk):
     def _disable_ui_for_process(self):
         self.running = True
         self.stop_event.clear()
+        self.start_progress_tracking(0, "Przygotowywanie zadania...")
         self.stop_btn.configure(state="normal", text="Przerwij zadanie")
         self.open_dir_btn.configure(state="disabled")
         for m in self.entries:
@@ -4847,8 +5001,11 @@ class ModernApp(ctk.CTk):
             if not mdb_files:
                 raise Exception("Brak plików .mdb w wybranym folderze źródłowym.")
             total = len(mdb_files)
+            self.start_progress_tracking(total, "Aktualizacja baz MDB")
+
             for idx, src_file in enumerate(mdb_files, start=1):
                 self.check_stop()
+                self.progress_current_file = src_file.name
                 dst_file = dst_dir / src_file.name
                 self.log(f"Przetwarzanie bazy: {src_file.name}")
                 if src_file.resolve() != dst_file.resolve():
@@ -4925,9 +5082,13 @@ class ModernApp(ctk.CTk):
 
             total = len(all_villages)
             created_dirs = 0
+            self.start_progress_tracking(total, "Rozdzielanie PDF")
+
             for idx, village_name in enumerate(all_villages, start=1):
                 if self.stop_event.is_set():
                     raise InterruptedError()
+
+                self.progress_current_file = village_name
 
                 self.log(f"Przetwarzanie wsi: {village_name}")
                 village_out_dir = output_folder / village_name
@@ -5330,8 +5491,11 @@ class ModernApp(ctk.CTk):
             excel.Visible = False
             excel.DisplayAlerts = False
             total = len(files)
+            self.start_progress_tracking(total, "Układanie Exceli")
+
             for idx, file_path in enumerate(files, start=1):
                 self.check_stop()
+                self.progress_current_file = file_path.name
                 if is_file_locked(file_path):
                     self.log(f"POMINIĘTO (Plik zablokowany/otwarty): {file_path.name}")
                     continue
@@ -5401,8 +5565,11 @@ class ModernApp(ctk.CTk):
                 word = win32com.client.DispatchEx("Word.Application")
                 word.Visible = False
                 word.DisplayAlerts = 0
+                self.start_progress_tracking(total, "Generowanie STR_TYT (MIETEK)")
+
                 for idx, file_path in enumerate(files, start=1):
                     self.check_stop()
+                    self.progress_current_file = file_path.name
                     try:
                         if is_file_locked(file_path):
                             self.log(f"Pominięto (zablokowany): {file_path.name}")
@@ -5498,8 +5665,11 @@ class ModernApp(ctk.CTk):
             )
             total = len(files)
             created = 0
+            self.start_progress_tracking(total, "Generowanie STR_TYT")
+
             for idx, file_path in enumerate(files, start=1):
                 self.check_stop()
+                self.progress_current_file = file_path.name
                 try:
                     if is_file_locked(file_path):
                         self.log(f"Pominięto (zablokowany raport): {file_path.name}")
@@ -5619,8 +5789,11 @@ class ModernApp(ctk.CTk):
             excel = win32com.client.DispatchEx("Excel.Application")
             excel.Visible, excel.DisplayAlerts = False, False
             total = len(files)
+            self.start_progress_tracking(total, "Konwersja do PDF")
+
             for idx, file_path in enumerate(files, start=1):
                 self.check_stop()
+                self.progress_current_file = file_path.name
                 if is_file_locked(file_path):
                     self.log(f"POMINIĘTO ZABLOKOWANY PLIK: {file_path.name}")
                     continue
@@ -5710,8 +5883,11 @@ class ModernApp(ctk.CTk):
             excel.Visible, excel.DisplayAlerts = False, False
 
             total = len(all_villages)
+            self.start_progress_tracking(total, "Wyłożenie Excel")
+
             for idx, village_name in enumerate(all_villages, start=1):
                 self.check_stop()
+                self.progress_current_file = village_name
                 try:
                     # pdf_files to lista tupli: (ścieżka_pdf, nazwa_zakładki_w_drzewku)
                     pdf_files = []
@@ -6006,6 +6182,19 @@ class ModernApp(ctk.CTk):
                 self.tpl_data[mode]["btn_gen"].configure(
                     state="normal", text="Wygeneruj Szablon STR_TYT", fg_color="#27ae60"
                 )
+
+        def _finish_progress():
+            try:
+                self.progress_current_file = None
+                self.progress_eta_label.configure(text="")
+
+                if getattr(self, "progress_total", 0) and getattr(self, "progress_current", 0) >= self.progress_total:
+                    self.progress_detail_label.configure(text="Zakończono")
+            except Exception:
+                pass
+
+        self.after(0, _finish_progress)
+
         if self.stream_frame:
             self.after(3000, lambda: self.stream_frame.grid_remove())
             self.clear_stream()
@@ -6018,9 +6207,14 @@ class ModernApp(ctk.CTk):
             files = [f for f in files if f.stem.upper() in selected_filters]
         if not files:
             return 0
+
         count = 0
-        for f in files:
+        total = len(files)
+        self.start_progress_tracking(total, "Czyszczenie TXT")
+
+        for idx, f in enumerate(files, start=1):
             self.check_stop()
+            self.set_progress((idx - 1) / total if total else 1, current_file=f.name, current=idx - 1)
             rel_path = f.relative_to(in_dir)
             flat_rel_path = flatten_rel_path(rel_path)
             target = out_dir / flat_rel_path
@@ -6033,9 +6227,11 @@ class ModernApp(ctk.CTk):
                 with open(target, "wb") as file:
                     file.write(content)
                 count += 1
+                self.set_progress(idx / total if total else 1, current_file=f.name, current=idx)
             except Exception as e:
                 self.log(f"Błąd pliku {f.name}: {e}")
-        return count
+
+            return count
 
     def task_word_processing_subprocess(
             self, in_dir, out_dir, remove_names, file_filter=None
@@ -6115,8 +6311,11 @@ class ModernApp(ctk.CTk):
         if not docs:
             return 0
 
+        total_docs = len(docs)
+        self.start_progress_tracking(total_docs, "Konwersja Word -> PDF")
+
         # Inicjalizacja strumienia
-        self.init_live_stream(len(docs))
+        self.init_live_stream(total_docs)
         for doc_path in docs:
             rel_path = doc_path.relative_to(in_dir)
             target = out_dir / rel_path.parent / f"{doc_path.stem}.pdf"
@@ -6137,6 +6336,8 @@ class ModernApp(ctk.CTk):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 doc = None
                 try:
+                    self.set_progress(count / total_docs if total_docs else 1, current_file=doc_path.name,
+                                      current=count)
                     self.start_stream_file(doc_path, target)
                     start_time = time.time()
 
@@ -6147,6 +6348,7 @@ class ModernApp(ctk.CTk):
                     duration = time.time() - start_time
                     self.complete_stream_file(doc_path, target, duration)
                     count += 1
+                    self.set_progress(count / total_docs if total_docs else 1, current_file=doc_path.name, current=count)
                 except Exception as e:
                     self.log(f"Problem konwersji obiektu {doc_path.name}: {e}")
                 finally:
@@ -6187,10 +6389,13 @@ class ModernApp(ctk.CTk):
         # -----------------------------
 
         count = 0
+        total_dirs = len(pdf_dirs)
+        self.start_progress_tracking(total_dirs, "Scalanie PDF")
         template_keys = get_saved_template_order(in_dir, mode_key)
 
-        for folder in pdf_dirs:
+        for idx_dir, folder in enumerate(pdf_dirs, start=1):
             self.check_stop()
+            self.set_progress((idx_dir - 1) / total_dirs if total_dirs else 1, current_file=folder.name, current=idx_dir - 1)
             pdfs = sorted([p for p in folder.iterdir() if p.suffix.lower() == ".pdf"])
 
             ordered_pdfs = build_ordered_pdfs_from_templates(pdfs, template_keys)
@@ -6236,6 +6441,7 @@ class ModernApp(ctk.CTk):
                     writer.write(f_out)
                 self.log(f"Połączono: {target.name}")
                 count += 1
+                self.set_progress(idx_dir / total_dirs if total_dirs else 1, current_file=folder.name, current=idx_dir)
             except Exception as e:
                 self.log(f"Błąd przy {target.name}: {e}")
             finally:
@@ -6246,9 +6452,14 @@ class ModernApp(ctk.CTk):
         pdfs = list(in_dir.rglob("*.pdf"))
         if not pdfs:
             return 0
+
         count = 0
-        for pdf_path in pdfs:
+        total_pdfs = len(pdfs)
+        self.start_progress_tracking(total_pdfs, "Usuwanie pustych stron")
+
+        for idx_pdf, pdf_path in enumerate(pdfs, start=1):
             self.check_stop()
+            self.set_progress((idx_pdf - 1) / total_pdfs if total_pdfs else 1, current_file=pdf_path.name, current=idx_pdf - 1)
             target = out_dir / pdf_path.relative_to(in_dir)
             target.parent.mkdir(parents=True, exist_ok=True)
             doc = fitz.open(str(pdf_path))
@@ -6279,6 +6490,8 @@ class ModernApp(ctk.CTk):
             out.close()
             doc.close()
             count += 1
+            self.set_progress(idx_pdf / total_pdfs if total_pdfs else 1, current_file=pdf_path.name, current=idx_pdf)
+
         return count
 
     def process_excel_workbook(self, excel, wb, font_config):
@@ -6471,8 +6684,11 @@ class ModernApp(ctk.CTk):
             if remove_owners: values_to_delete.append(2)
             if remove_ls: values_to_delete.append(3)
 
+            self.start_progress_tracking(total, "Usuwanie kolumn")
+
             for idx, file_path in enumerate(files, start=1):
                 self.check_stop()
+                self.progress_current_file = file_path.name
                 if is_file_locked(file_path):
                     self.log(f"POMINIĘTO (Plik zablokowany/otwarty): {file_path.name}")
                     continue
