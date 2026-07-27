@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.94"
+CURRENT_VERSION = "v1.1.95"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1292,7 +1292,7 @@ class ChangelogWindow(ctk.CTkToplevel):
         self.title(f"Co nowego w wersji {version}?")
         self.geometry("600x450")
         self.resizable(False, False)
-        
+
         # Wycentrowanie okna
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
@@ -1306,7 +1306,7 @@ class ChangelogWindow(ctk.CTkToplevel):
         # Nagłówek
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
         header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
-        
+
         ctk.CTkLabel(
             header_frame,
             text=f"Aplikacja została zaktualizowana do wersji {version}! 🎉",
@@ -1334,7 +1334,7 @@ class ChangelogWindow(ctk.CTkToplevel):
             corner_radius=6
         )
         self.textbox.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="nsew")
-        
+
         content = changelog_text.strip() if changelog_text and changelog_text.strip() else "Brak szczegółowego opisu zmian dla tej wersji."
         self.textbox.insert("0.0", content)
         self.textbox.configure(state="disabled")
@@ -1356,18 +1356,84 @@ class ChangelogWindow(ctk.CTkToplevel):
         ).pack(side="right")
 
         # --- KLUCZOWA POPRAWKA PRZYCIĄGANIA UWAGI / OTWIERANIA NA WIERZCHU ---
-        self.grab_set()             # Przejmuje zdarzenia myszy i klawiatury
-        self.lift()                 # Podnosi okno na wierzch stosu okien Tkintera
+        self.grab_set()  # Przejmuje zdarzenia myszy i klawiatury
+        self.lift()  # Podnosi okno na wierzch stosu okien Tkintera
         try:
-            self.focus_force()      # Wymusza ostrość systemu Windows
+            self.focus_force()  # Wymusza ostrość systemu Windows
         except Exception:
             pass
         try:
             self.attributes("-topmost", True)  # Przypina na wierzch na czas otwarcia
-            self.after(200, lambda: self.attributes("-topmost", False)) # Zdejmuje twardy priorytet
+            self.after(200, lambda: self.attributes("-topmost", False))  # Zdejmuje twardy priorytet
         except Exception:
             pass
 
+class ValidationWindow(ctk.CTkToplevel):
+    def __init__(self, master, title_text, warnings_list, proceed_event, cancel_event):
+        super().__init__(master)
+        self.title("Kontrola kompletności plików")
+        self.geometry("700x500")
+
+        # Wycentrowanie okna
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - 700) // 2
+        y = (screen_height - 500) // 2
+        self.geometry(f"700x500+{x}+{y}")
+
+        self.proceed_event = proceed_event
+        self.cancel_event = cancel_event
+
+        # Budowa UI
+        lbl = ctk.CTkLabel(self, text=title_text, font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"), text_color="#D83B01")
+        lbl.pack(pady=(20, 10), padx=20, anchor="w")
+
+        # Pole z listą braków
+        self.textbox = ctk.CTkTextbox(
+            self, font=ctk.CTkFont(family="Consolas", size=12),
+            fg_color="#1E1E1E", text_color="#E0E0E0", border_width=1, border_color="#333333"
+        )
+        self.textbox.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+
+        for w in warnings_list:
+            self.textbox.insert("end", w + "\n")
+        self.textbox.configure(state="disabled")
+
+        btn_frame = ctk.CTkFrame(self, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+
+        btn_cancel = ctk.CTkButton(
+            btn_frame, text="Przerwij operację", fg_color="#8B0000", hover_color="#A52A2A",
+            command=self.do_cancel, font=ctk.CTkFont(weight="bold")
+        )
+        btn_cancel.pack(side="right", padx=(10, 0))
+
+        btn_proceed = ctk.CTkButton(
+            btn_frame, text="Ignoruj i kontynuuj", fg_color="#0067C0", hover_color="#005A9E",
+            command=self.do_proceed, font=ctk.CTkFont(weight="bold")
+        )
+        btn_proceed.pack(side="right")
+
+        # Zabezpieczenie przed zamknięciem 'X'
+        self.protocol("WM_DELETE_WINDOW", self.do_cancel)
+
+        # Wymuszenie okna na wierzchu i przejęcie interakcji
+        self.grab_set()
+        self.lift()
+        try:
+            self.focus_force()
+            self.attributes("-topmost", True)
+            self.after(200, lambda: self.attributes("-topmost", False))
+        except Exception:
+            pass
+
+    def do_proceed(self):
+        self.proceed_event.set()
+        self.destroy()
+
+    def do_cancel(self):
+        self.cancel_event.set()
+        self.destroy()
 
 class ModernApp(ctk.CTk):
     def __init__(self):
@@ -1498,6 +1564,7 @@ class ModernApp(ctk.CTk):
                         changelog_file.unlink(missing_ok=True)
                     except Exception:
                         pass
+
                 self.after(3000, _safe_unlink)
 
     # --- METODY DLA HISTORII I DASHBOARDU ---
@@ -2874,7 +2941,7 @@ class ModernApp(ctk.CTk):
         out_path_obj = Path(out_path)
         file_name = out_path_obj.name
         if file_name.upper().startswith(other_prefix):
-            file_name = file_name[len(other_prefix) :]
+            file_name = file_name[len(other_prefix):]
         if not file_name.upper().startswith(doc_prefix):
             file_name = f"{doc_prefix}{file_name}"
         if not file_name.lower().endswith(".docx"):
@@ -3215,25 +3282,28 @@ class ModernApp(ctk.CTk):
         delete_options_frame.grid(row=4, column=0, columnspan=3, padx=15, pady=(5, 15), sticky="ew")
 
         ctk.CTkLabel(
-            delete_options_frame, text="Opcje usuwania kolumn (w arkuszach Sheet4 / REJ):", font=font_label, text_color="#A0A0A0"
+            delete_options_frame, text="Opcje usuwania kolumn (w arkuszach Sheet4 / REJ):", font=font_label,
+            text_color="#A0A0A0"
         ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
 
         self.remove_owners_var = ctk.BooleanVar(value=False)
         self.cb_remove_owners = ctk.CTkCheckBox(
-            delete_options_frame, text="Usuń Właścicieli (wartość 2 w 9. wierszu)", variable=self.remove_owners_var, font=font_sheet, fg_color="#8B0000", hover_color="#A52A2A"
+            delete_options_frame, text="Usuń Właścicieli (wartość 2 w 9. wierszu)", variable=self.remove_owners_var,
+            font=font_sheet, fg_color="#8B0000", hover_color="#A52A2A"
         )
         self.cb_remove_owners.grid(row=1, column=0, sticky="w", padx=(0, 20))
 
         self.remove_ls_var = ctk.BooleanVar(value=False)
         self.cb_remove_ls = ctk.CTkCheckBox(
-            delete_options_frame, text="Usuń LS (wartość 3 w 9. wierszu)", variable=self.remove_ls_var, font=font_sheet, fg_color="#8B0000", hover_color="#A52A2A"
+            delete_options_frame, text="Usuń LS (wartość 3 w 9. wierszu)", variable=self.remove_ls_var, font=font_sheet,
+            fg_color="#8B0000", hover_color="#A52A2A"
         )
         self.cb_remove_ls.grid(row=1, column=1, sticky="w")
 
         # === PRZYCISKI ===
         # ZMIANA: Zamiast 'parent', dolny panel z przyciskami podpinamy pod 'scroll_frame'
         btn_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
-        btn_frame.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew") # Zwiększony dolny margines dla wygody
+        btn_frame.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")  # Zwiększony dolny margines dla wygody
         btn_frame.grid_columnconfigure(0, weight=1)
         btn_frame.grid_columnconfigure(1, weight=1)
 
@@ -3912,6 +3982,19 @@ class ModernApp(ctk.CTk):
 
         self.after(0, _update_log)
 
+    def show_validation_window_sync(self, title_text, warnings):
+        """ Pokazuje okno walidacji i blokuje wątek w tle do momentu decyzji użytkownika. """
+        proceed_evt = threading.Event()
+        cancel_evt = threading.Event()
+
+        self.after(0, lambda: ValidationWindow(self, title_text, warnings, proceed_evt, cancel_evt))
+
+        # Blokada wątku dopóki nie zostanie wciśnięty żaden z przycisków
+        while not proceed_evt.is_set() and not cancel_evt.is_set():
+            time.sleep(0.1)
+
+        return proceed_evt.is_set()
+
     def set_progress(self, value):
         self.after(0, lambda: self.progress_bar.set(value))
 
@@ -4086,11 +4169,11 @@ $form.Add_Shown({{
         $label.Text = "Pobrano poprawnie. Podmiana plików..."
         $form.Refresh()
         Start-Sleep -Milliseconds 500
-        
+
         # Podmiana pliku EXE
         Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
         Move-Item -Path $tempExe -Destination $exePath -Force
-        
+
         # Zapisz plik changelogu w folderze docelowym EXE
         $changelogFile = Join-Path $targetDir "pending_changelog.json"
         $b64Data = "{b64_changelog}"
@@ -4103,7 +4186,7 @@ $form.Add_Shown({{
         $progressBar.Value = 100
         $form.Refresh()
         Start-Sleep -Seconds 1
-        
+
         # Poczekaj aż stary proces zwolni pliki
         Start-Sleep -Seconds 2
 
@@ -4114,7 +4197,7 @@ $form.Add_Shown({{
         $env:TK_LIBRARY = $null
         Start-Sleep -Seconds 2
         Start-Process -FilePath $exePath -WorkingDirectory $targetDir
-        
+
     }} catch {{
         $label.Text = "Wystąpił błąd podczas aktualizacji."
         $label.ForeColor = [System.Drawing.Color]::Red
@@ -4597,25 +4680,13 @@ $form.ShowDialog()
         excel = None
         try:
             self.update_status("Rozdzielanie dokumentacji i generowanie PDF", "#0078D7")
-            title_folder = Path(title_folder_str)
-            opisy_folder = Path(opisy_folder_str)
-            raporty_folder = Path(raporty_folder_str)
             output_folder = Path(output_folder_str)
             output_folder.mkdir(parents=True, exist_ok=True)
-            title_pages = sorted(
-                [
-                    p
-                    for p in title_folder.iterdir()
-                    if p.is_file()
-                       and p.suffix.lower() == ".docx"
-                       and p.name.lower().startswith("str_tyt_")
-                ],
-                key=lambda p: p.name.lower(),
-            )
-            if not title_pages:
-                raise Exception(
-                    "Nie znaleziono plików STR_TYT_*.docx w wybranym folderze stron tytułowych."
-                )
+
+            all_villages = self._get_all_villages(title_folder_str, opisy_folder_str, raporty_folder_str)
+            if not all_villages:
+                raise Exception("Nie odnaleziono plików z nazwami wsi w podanych folderach.")
+
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible = False
             word.DisplayAlerts = 0
@@ -4623,46 +4694,42 @@ $form.ShowDialog()
             excel.Visible = False
             excel.DisplayAlerts = False
             excel.ScreenUpdating = False
-            total = len(title_pages)
+
+            total = len(all_villages)
             created_dirs = 0
-            for idx, title_file in enumerate(title_pages, start=1):
+            for idx, village_name in enumerate(all_villages, start=1):
                 if self.stop_event.is_set():
                     raise InterruptedError()
-                village_name = title_file.stem.replace("STR_TYT_", "", 1)
-                self.log(f"Przetwarzanie wsi: {village_name.upper()}")
-                village_out_dir = output_folder / village_name.upper()
+
+                self.log(f"Przetwarzanie wsi: {village_name}")
+                village_out_dir = output_folder / village_name
                 village_out_dir.mkdir(parents=True, exist_ok=True)
+
                 try:
                     file_counter = 1
-                    pdf_str = (
-                            village_out_dir / f"{file_counter}_STR_TYT_{village_name}.pdf"
-                    )
-                    if is_file_locked(title_file):
-                        self.log(
-                            f"  [Błąd] Plik tytułowy zablokowany: {title_file.name}"
-                        )
-                    else:
-                        self.convert_office_to_pdf(title_file, pdf_str, word, excel)
-                        file_counter += 1
-                    path_opis = self.find_matching_file(opisy_folder, village_name)
+
+                    path_title = self.find_matching_file(Path(title_folder_str), village_name)
+                    if path_title:
+                        pdf_str = village_out_dir / f"{file_counter}_STR_TYT_{village_name}.pdf"
+                        if is_file_locked(path_title):
+                            self.log(f"  [Błąd] Plik tytułowy zablokowany: {path_title.name}")
+                        else:
+                            self.convert_office_to_pdf(path_title, pdf_str, word, excel)
+                            file_counter += 1
+
+                    path_opis = self.find_matching_file(Path(opisy_folder_str), village_name)
                     if path_opis:
                         if is_file_locked(path_opis):
-                            self.log(
-                                f"  [Błąd] Plik opisu zablokowany: {path_opis.name}"
-                            )
+                            self.log(f"  [Błąd] Plik opisu zablokowany: {path_opis.name}")
                         else:
-                            pdf_opis = (
-                                    village_out_dir
-                                    / f"{file_counter}_OPIS_{village_name}.pdf"
-                            )
+                            pdf_opis = village_out_dir / f"{file_counter}_OPIS_{village_name}.pdf"
                             self.convert_office_to_pdf(path_opis, pdf_opis, word, excel)
                             file_counter += 1
-                    path_raport = self.find_matching_file(raporty_folder, village_name)
+
+                    path_raport = self.find_matching_file(Path(raporty_folder_str), village_name)
                     if path_raport:
                         if is_file_locked(path_raport):
-                            self.log(
-                                f"  [Błąd] Plik raportu zablokowany w innym programie: {path_raport.name}"
-                            )
+                            self.log(f"  [Błąd] Plik raportu zablokowany: {path_raport.name}")
                         else:
                             wb = None
                             try:
@@ -4672,14 +4739,8 @@ $form.ShowDialog()
                                         raise InterruptedError()
                                     ws = wb.Worksheets(ws_idx)
                                     safe_ws_name = "".join(
-                                        c
-                                        for c in ws.Name
-                                        if c.isalnum() or c in (" ", "_", "-")
-                                    ).strip()
-                                    pdf_ws = (
-                                            village_out_dir
-                                            / f"{file_counter}_RAPORT_{village_name}_{safe_ws_name}.pdf"
-                                    )
+                                        c for c in ws.Name if c.isalnum() or c in (" ", "_", "-")).strip()
+                                    pdf_ws = village_out_dir / f"{file_counter}_RAPORT_{village_name}_{safe_ws_name}.pdf"
                                     ws.ExportAsFixedFormat(0, str(pdf_ws))
                                     file_counter += 1
                             except InterruptedError:
@@ -4689,22 +4750,18 @@ $form.ShowDialog()
                             finally:
                                 if wb is not None:
                                     wb.Close(False)
+
                     created_dirs += 1
                 except InterruptedError:
                     raise
                 except Exception as e:
                     self.log(f"Błąd przetwarzania: {e}")
                 self.set_progress(idx / total)
+
             self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
-            self.log(
-                f"\nZAKOŃCZONO POMYŚLNIE. Przetworzono foldery dla {created_dirs} wsi."
-            )
-            self.after(
-                0,
-                lambda: messagebox.showinfo(
-                    "Sukces", "Rozdzielanie na PDF zakończone."
-                ),
-            )
+            self.log(f"\nZAKOŃCZONO POMYŚLNIE. Przetworzono foldery dla {created_dirs} wsi.")
+            self.after(0, lambda: messagebox.showinfo("Sukces", "Rozdzielanie na PDF zakończone."))
+
         except InterruptedError:
             self.update_status("Przerwano", "#D83B01", animate=False)
             self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
@@ -5376,65 +5433,146 @@ $form.ShowDialog()
         pythoncom.CoInitialize()
         word, excel = None, None
         try:
-            title_pages = sorted(
-                [
-                    p
-                    for p in Path(title_folder_str).iterdir()
-                    if p.is_file() and p.name.lower().startswith("str_tyt_")
-                ]
-            )
+            # --- SŁOWNIK ZAKŁADEK DLA ARKUSZY EXCEL ---
+            SHEET_BOOKMARKS = {
+                "TPM_FL": "Zestawienie powierzchni i miąższości gatunków panujących w klasach i podklasach wieku według głównych funkcji lasu",
+                "TPM_TH": "Zestawienie Powierzchni I Miąższości Gatunków Panujących W Typach Siedliskowych Lasu Wg. Klas I Podklas Wieku",
+                "Zestawienie": "Zestawienie zadań gospodarczych projektowanych do wykonania",
+                "WykazPow": "Wykaz powierzchni leśnych niezalesionych",
+                "OT": "Opis Taksacyjny",
+                "WykazWlasc": "Wykaz właścicieli",
+                "REJ": "Rejestr działek leśnych i gruntów do zalesienia wg właścicieli",
+                "Sheet4": "Rejestr działek leśnych i gruntów do zalesienia wg właścicieli",
+                "WykazDzialek": "Wykaz działek",
+                "Skroty": "Wykaz skrótów i symboli"
+            }
+            # ------------------------------------------
+
+            # --- ZBIERAMY WSZYSTKIE WSIE (Z 3 FOLDERÓW) ---
+            all_villages = self._get_all_villages(title_folder_str, opisy_folder_str, raporty_folder_str)
+            if not all_villages:
+                raise Exception("Nie odnaleziono żadnych plików wsi w podanych folderach.")
+
+            # --- KONTROLA KOMPLETNOŚCI WYŁOŻENIA ---
+            warnings = []
+            for village_name in all_villages:
+                path_title = self.find_matching_file(Path(title_folder_str), village_name)
+                path_opis = self.find_matching_file(Path(opisy_folder_str), village_name)
+                path_raport = self.find_matching_file(Path(raporty_folder_str), village_name)
+
+                missing = []
+                if not path_title: missing.append("STR_TYT")
+                if not path_opis: missing.append("OPIS")
+                if not path_raport: missing.append("RAPORT / REJESTR")
+
+                if missing:
+                    warnings.append(f"• Wieś {village_name}: brak -> {', '.join(missing)}")
+
+            if warnings:
+                self.log("[KONTROLA] Wykryto braki w plikach wyłożenia. Oczekiwanie na decyzję...")
+                if not self.show_validation_window_sync("Wykryto brakujące części w procedurze WYŁOŻENIA:", warnings):
+                    raise InterruptedError("Operacja Wyłożenia Excel przerwana przez użytkownika.")
+            # ----------------------------------------
+
             temp_folder = Path(output_folder_str) / "_TEMP_PDF_WYLOZENIE"
             temp_folder.mkdir(parents=True, exist_ok=True)
             word = win32com.client.DispatchEx("Word.Application")
             word.Visible, word.DisplayAlerts = False, 0
             excel = win32com.client.DispatchEx("Excel.Application")
             excel.Visible, excel.DisplayAlerts = False, False
-            total = len(title_pages)
-            for idx, title_file in enumerate(title_pages, start=1):
+
+            total = len(all_villages)
+            for idx, village_name in enumerate(all_villages, start=1):
                 self.check_stop()
-                village_name = title_file.stem.replace("STR_TYT_", "", 1)
-                if is_file_locked(title_file):
-                    self.log(f"Błąd dostępu do: {title_file.name}")
-                    continue
                 try:
+                    # pdf_files to lista tupli: (ścieżka_pdf, nazwa_zakładki_w_drzewku)
                     pdf_files = []
-                    pdf_str = temp_folder / f"1_STR_{village_name}.pdf"
-                    if self.convert_office_to_pdf(title_file, pdf_str, word, excel):
-                        pdf_files.append(pdf_str)
-                    path_opis = self.find_matching_file(
-                        Path(opisy_folder_str), village_name
-                    )
+
+                    path_title = self.find_matching_file(Path(title_folder_str), village_name)
+                    if path_title and not is_file_locked(path_title):
+                        pdf_str = temp_folder / f"1_STR_{village_name}.pdf"
+                        if self.convert_office_to_pdf(path_title, pdf_str, word, excel):
+                            pdf_files.append((pdf_str, "Strona tytułowa"))
+
+                    path_opis = self.find_matching_file(Path(opisy_folder_str), village_name)
                     if path_opis and not is_file_locked(path_opis):
                         pdf_opis = temp_folder / f"2_OPIS_{village_name}.pdf"
                         if self.convert_office_to_pdf(path_opis, pdf_opis, word, excel):
-                            pdf_files.append(pdf_opis)
-                    path_raport = self.find_matching_file(
-                        Path(raporty_folder_str), village_name
-                    )
+                            pdf_files.append((pdf_opis, "Opis ogólny"))
+
+                    path_raport = self.find_matching_file(Path(raporty_folder_str), village_name)
                     if path_raport and not is_file_locked(path_raport):
-                        pdf_raport = temp_folder / f"3_RAPORT_{village_name}.pdf"
-                        if self.convert_office_to_pdf(
-                                path_raport, pdf_raport, word, excel
-                        ):
-                            pdf_files.append(pdf_raport)
+                        wb = None
+                        try:
+                            # Otwieramy skoroszyt Excela
+                            wb = excel.Workbooks.Open(str(path_raport))
+                            # Przechodzimy przez KAŻDY arkusz osobno
+                            for ws_idx in range(1, wb.Worksheets.Count + 1):
+                                if self.stop_event.is_set():
+                                    raise InterruptedError()
+                                ws = wb.Worksheets(ws_idx)
+
+                                safe_ws_name = "".join(
+                                    c for c in ws.Name if c.isalnum() or c in (" ", "_", "-")).strip()
+                                pdf_ws = temp_folder / f"3_RAPORT_{village_name}_{safe_ws_name}.pdf"
+
+                                try:
+                                    # Eksportujemy tylko dany arkusz do pojedynczego PDF
+                                    ws.ExportAsFixedFormat(0, str(pdf_ws))
+
+                                    # Uodparniamy na ukryte spacje i wielkość liter w nazwie arkusza Excel
+                                    sheet_name_clean = ws.Name.strip().upper()
+
+                                    # Tworzymy w locie słownik z kluczami pisanymi wyłącznie dużymi literami
+                                    bookmarks_upper = {k.strip().upper(): v for k, v in SHEET_BOOKMARKS.items()}
+
+                                    # Pobieramy pełną nazwę zakładki
+                                    bookmark_label = bookmarks_upper.get(sheet_name_clean, ws.Name)
+                                    pdf_files.append((pdf_ws, bookmark_label))
+                                except Exception as e:
+                                    self.log(f"  [Ostrzeżenie] Pominięto arkusz {ws.Name}: {e}")
+
+                        except InterruptedError:
+                            raise
+                        except Exception as e:
+                            self.log(f"  [Błąd] Problem z arkuszami w pliku {path_raport.name}: {e}")
+                        finally:
+                            if wb is not None:
+                                wb.Close(False)
+
                     if pdf_files:
                         writer = PdfWriter()
-                        for pdf in pdf_files:
-                            with open(pdf, "rb") as fh:
-                                reader = PdfReader(fh)
-                                for page in reader.pages:
-                                    writer.add_page(page)
-                        with open(
-                                Path(output_folder_str) / f"Gotowy_{village_name}.pdf", "wb"
-                        ) as out_f:
+                        current_page = 0
+                        for pdf_path, bookmark_label in pdf_files:
+                            reader = PdfReader(str(pdf_path))
+                            num_pages = len(reader.pages)
+
+                            # Dodajemy czyste strony
+                            for page in reader.pages:
+                                writer.add_page(page)
+
+                            writer.add_outline_item(bookmark_label, current_page)
+                            current_page += num_pages
+
+                        # --- NOWE: WSTRZYKIWANIE METADANYCH ---
+                        writer.add_metadata({
+                            "/Title": f"UPUL - {village_name.upper()}",
+                            "/Author": "Agencja Cezar",
+                            "/Creator": "Kombajn Leśny PRO",
+                            "/Producer": "Kombajn Leśny PRO"
+                        })
+                        # --------------------------------------
+
+                        with open(Path(output_folder_str) / f"Gotowy_{village_name}.pdf", "wb") as out_f:
                             writer.write(out_f)
                 except Exception as e:
-                    self.log(f"Błąd: {e}")
+                    self.log(f"Błąd dla wsi {village_name}: {e}")
                 self.set_progress(idx / total)
+
             self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
-        except InterruptedError:
+        except InterruptedError as ie:
             self.update_status("Przerwano", "#D83B01", animate=False)
-            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+            self.log(f"\n{ie}")
         except Exception as e:
             self.log(traceback.format_exc())
             self.update_status("Błąd", "#D83B01", animate=False)
@@ -5463,11 +5601,49 @@ $form.ShowDialog()
                 if p.is_file() and not p.name.startswith("~$")
             ]
         )
-        village_lower = village_name.lower()
+
+        # Agresywna normalizacja - usuwamy wszystkie spacje, myślniki i podkreślniki
+        v_norm = re.sub(r'[\s_\-]', '', village_name.lower())
+
         for file_path in candidates:
-            if village_lower in file_path.name.lower():
+            # Normalizujemy tak samo nazwę pliku, który sprawdzamy
+            c_norm = re.sub(r'[\s_\-]', '', file_path.stem.lower())
+
+            # Sprawdzamy czy znormalizowana nazwa wsi zawiera się w znormalizowanej nazwie pliku
+            if v_norm and v_norm in c_norm:
                 return file_path
+
         return None
+
+    def _get_all_villages(self, title_folder_str, opisy_folder_str, raporty_folder_str):
+        """Zbiera unikalne nazwy wsi ze wszystkich trzech folderów źródłowych."""
+        all_villages = set()
+
+        # 1. Szukamy wsi w plikach STR_TYT
+        if Path(title_folder_str).exists():
+            for p in Path(title_folder_str).iterdir():
+                if p.is_file() and p.name.lower().startswith("str_tyt_"):
+                    all_villages.add(p.stem[8:].strip().upper())
+
+        # 2. Szukamy wsi w plikach raportów Excel
+        if Path(raporty_folder_str).exists():
+            for p in Path(raporty_folder_str).iterdir():
+                if p.is_file() and p.suffix.lower() in {".xls", ".xlsx"} and not p.name.startswith("~$"):
+                    v = self.extract_village_name_from_excel(p.name)
+                    if v:
+                        all_villages.add(v.strip().upper())
+
+        # 3. Szukamy wsi w folderze Opisów
+        if Path(opisy_folder_str).exists():
+            for p in Path(opisy_folder_str).iterdir():
+                if p.is_file() and not p.name.startswith("~$"):
+                    name = p.stem.upper()
+                    # Wycinamy wszystko typu "OPIS_", "OPIS OG_", "OPIS OGOLNY_" itd.
+                    name = re.sub(r"^OPIS[\s_]*(OG[\w]*|OGÓLNY)?[\s_]*", "", name).strip()
+                    if name:
+                        all_villages.add(name)
+
+        return sorted(list({v for v in all_villages if v}))
 
     def convert_office_to_pdf(self, input_path, output_path, word_app, excel_app):
         input_path = Path(input_path)
@@ -5757,18 +5933,38 @@ $form.ShowDialog()
         pdf_dirs = set(p.parent for p in in_dir.rglob("*.pdf"))
         if not pdf_dirs:
             return 0
-        count = 0
 
-        # POPRAWKA: Pobieramy konfigurację układu z głównego folderu PDF (in_dir),
-        # ponieważ to tam zapisuje ją okno "Skonfiguruj układ PDF".
-        # Wcześniej program błędnie szukał tego pliku w podfolderach poszczególnych wsi.
+        # --- KONTROLA KOMPLETNOŚCI ---
+        warnings = []
+        for folder in pdf_dirs:
+            pdfs = [p.name.lower() for p in folder.iterdir() if p.suffix.lower() == ".pdf"]
+            has_title = any(template_matches(PDF_ORDER_TEMPLATES[0], p) for p in pdfs)
+            has_optax = any(template_matches(PDF_ORDER_TEMPLATES[3], p) for p in pdfs)
+            has_opis = any(template_matches(PDF_ORDER_TEMPLATES[1], p) for p in pdfs)
+            has_rej = any(template_matches(PDF_ORDER_TEMPLATES[7], p) for p in pdfs)
+
+            missing = []
+            if not has_title: missing.append("STR_TYT")
+            if not (has_optax or has_opis): missing.append("OPTAX / OPIS")
+            if not has_rej: missing.append("REJESTR")
+
+            if missing:
+                warnings.append(f"• Wieś {folder.name.upper()}: brak -> {', '.join(missing)}")
+
+        if warnings:
+            self.log("[KONTROLA] Wykryto braki w folderach do scalenia. Oczekiwanie na decyzję...")
+            if not self.show_validation_window_sync("Wykryto brakujące pliki (niektóre wsie nie są kompletne):",
+                                                    warnings):
+                raise InterruptedError("Operacja scalania przerwana przez użytkownika.")
+        # -----------------------------
+
+        count = 0
         template_keys = get_saved_template_order(in_dir, mode_key)
 
         for folder in pdf_dirs:
             self.check_stop()
             pdfs = sorted([p for p in folder.iterdir() if p.suffix.lower() == ".pdf"])
 
-            # Używamy pobranej wyżej konfiguracji dla każdego podfolderu
             ordered_pdfs = build_ordered_pdfs_from_templates(pdfs, template_keys)
             if not ordered_pdfs:
                 continue
@@ -5776,16 +5972,44 @@ $form.ShowDialog()
             target_dir = out_dir / folder.relative_to(in_dir)
             target_dir.mkdir(parents=True, exist_ok=True)
             target = target_dir / f"{folder.name}_scalony.pdf"
+
             writer = PdfWriter()
+            current_page = 0
             try:
                 for pdf in ordered_pdfs:
-                    writer.append(str(pdf))
+                    # Szukamy przyjaznej nazwy dla zakładki (Bookmarks)
+                    friendly_name = pdf.stem
+                    for tpl in PDF_ORDER_TEMPLATES:
+                        if template_matches(tpl, pdf.name):
+                            friendly_name = tpl["label"]
+                            break
+
+                    reader = PdfReader(str(pdf))
+                    num_pages = len(reader.pages)
+
+                    # --- TUTAJ BYŁ BŁĄD. Zamiast writer.append(reader) robimy tak: ---
+                    for page in reader.pages:
+                        writer.add_page(page)
+                    # ------------------------------------------------------------------
+
+                    writer.add_outline_item(friendly_name, current_page)
+                    current_page += num_pages
+
+                    # --- NOWE: WSTRZYKIWANIE METADANYCH ---
+                writer.add_metadata({
+                    "/Title": f"UPUL - {folder.name.upper()}",
+                    "/Author": "Agencja Cezar",
+                    "/Creator": "Kombajn Leśny PRO",
+                    "/Producer": "Kombajn Leśny PRO"
+                })
+                # --------------------------------------
+
                 with open(target, "wb") as f_out:
                     writer.write(f_out)
                 self.log(f"Połączono: {target.name}")
                 count += 1
             except Exception as e:
-                self.log(f"Błąd: {e}")
+                self.log(f"Błąd przy {target.name}: {e}")
             finally:
                 writer.close()
         return count
@@ -5812,6 +6036,17 @@ $form.ShowDialog()
                 white = sum(1 for v in data if v >= 250)
                 if (white / len(data)) < 0.995:
                     out.insert_pdf(doc, from_page=i, to_page=i)
+
+            # --- DODANIE METADANYCH NA SAMYM KOŃCU PROCESU (FITZ) ---
+            village_name = pdf_path.parent.name.upper()
+            out.set_metadata({
+                "title": f"UPUL - {village_name}",
+                "author": "Agencja Cezar",
+                "creator": "Kombajn Leśny PRO",
+                "producer": "Kombajn Leśny PRO"
+            })
+            # --------------------------------------------------------
+
             out.save(str(target))
             out.close()
             doc.close()
@@ -6043,7 +6278,8 @@ $form.ShowDialog()
                                             val_int = int(float(cell_val))
                                             if val_int in values_to_delete:
                                                 ws.Columns(col).Delete()
-                                                self.log(f"  -> Usunięto kolumnę {col} (znaleziono wartość {val_int} w wierszu 9) z arkusza {sheet_name}")
+                                                self.log(
+                                                    f"  -> Usunięto kolumnę {col} (znaleziono wartość {val_int} w wierszu 9) z arkusza {sheet_name}")
                                         except Exception:
                                             pass
                         except Exception as e:
