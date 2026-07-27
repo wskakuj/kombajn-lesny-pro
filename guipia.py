@@ -4104,12 +4104,12 @@ $form.Add_Shown({{
         $form.Refresh()
         Start-Sleep -Seconds 1
         
-        [System.Environment]::SetEnvironmentVariable('_MEIPASS2', $null, 'Process')
-        [System.Environment]::SetEnvironmentVariable('_MEIPASS', $null, 'Process')
-        [System.Environment]::SetEnvironmentVariable('TCL_LIBRARY', $null, 'Process')
-        [System.Environment]::SetEnvironmentVariable('TK_LIBRARY', $null, 'Process')
+        $env:_MEIPASS2 = $null
+        $env:_MEIPASS = $null
+        $env:TCL_LIBRARY = $null
+        $env:TK_LIBRARY = $null
+        Start-Process -FilePath $exePath
         
-        Start-Process -FilePath $exePath -UseNewEnvironment
     }} catch {{
         $label.Text = "Wystąpił błąd podczas aktualizacji."
         $label.ForeColor = [System.Drawing.Color]::Red
