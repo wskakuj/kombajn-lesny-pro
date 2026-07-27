@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.2.22"
+CURRENT_VERSION = "v1.2.23"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1331,11 +1331,13 @@ class ChangelogWindow(ctk.CTkToplevel):
             text_color="#E0E0E0",
             border_width=1,
             border_color="#333333",
-            corner_radius=6
+            corner_radius=6,
+            wrap="word",                # <--- KLUCZOWA ZMIANA: łamanie na całych słowach, nie w połowie wyrazu
+            activate_scrollbars=True,
         )
         self.textbox.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="nsew")
 
-        content = changelog_text.strip() if changelog_text and changelog_text.strip() else "Brak szczegółowego opisu zmian dla tej wersji."
+        content = self.format_changelog_text(changelog_text)
         self.textbox.insert("0.0", content)
         self.textbox.configure(state="disabled")
 
@@ -1355,18 +1357,60 @@ class ChangelogWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
         ).pack(side="right")
 
-        # --- KLUCZOWA POPRAWKA PRZYCIĄGANIA UWAGI / OTWIERANIA NA WIERZCHU ---
-        self.grab_set()  # Przejmuje zdarzenia myszy i klawiatury
-        self.lift()  # Podnosi okno na wierzch stosu okien Tkintera
+        # --- PRZYCIĄGANIE UWAGI / OTWIERANIE NA WIERZCHU ---
+        self.grab_set()
+        self.lift()
         try:
-            self.focus_force()  # Wymusza ostrość systemu Windows
+            self.focus_force()
         except Exception:
             pass
         try:
-            self.attributes("-topmost", True)  # Przypina na wierzch na czas otwarcia
-            self.after(200, lambda: self.attributes("-topmost", False))  # Zdejmuje twardy priorytet
+            self.attributes("-topmost", True)
+            self.after(200, lambda: self.attributes("-topmost", False))
         except Exception:
             pass
+
+    @staticmethod
+    def format_changelog_text(text: str) -> str:
+        """Czyści surowy opis z GitHuba (Markdown) do czytelnej postaci tekstowej."""
+        if not text or not text.strip():
+            return "Brak szczegółowego opisu zmian dla tej wersji."
+
+        # Ujednolicenie końcówek linii (GitHub potrafi wysłać \r\n)
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+
+        lines = []
+        for line in text.split("\n"):
+            s = line.rstrip()
+
+            # Nagłówki Markdown ("## Nowości") -> zwykły tekst
+            s = re.sub(r"^\s*#{1,6}\s+", "", s)
+
+            # Pogrubienia i podkreślenia Markdown
+            s = s.replace("**", "").replace("__", "")
+
+            # Kursywa (pojedyncze gwiazdki)
+            s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", s)
+
+            # Linki [tekst](adres) -> sam tekst
+            s = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", s)
+
+            # Punktory Markdown ("- ", "* ", "+ ") -> elegancka kropka
+            s = re.sub(r"^\s*[-*+]\s+", "•  ", s)
+
+            lines.append(s)
+
+        # Sklej i zredukuj nadmiar pustych linii (maks. jedna z rzędu)
+        cleaned = []
+        prev_blank = False
+        for line in lines:
+            is_blank = not line.strip()
+            if is_blank and prev_blank:
+                continue
+            cleaned.append(line)
+            prev_blank = is_blank
+
+        return "\n".join(cleaned).strip()
 
 class ValidationWindow(ctk.CTkToplevel):
     def __init__(self, master, title_text, warnings_list, proceed_event, cancel_event):
