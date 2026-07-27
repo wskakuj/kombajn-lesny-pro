@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.96"
+CURRENT_VERSION = "v1.1.96b"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -4190,13 +4190,18 @@ $form.Add_Shown({{
         # Poczekaj aż stary proces zwolni pliki
         Start-Sleep -Seconds 2
 
-        # Wyczyść zmienne PyInstallera i uruchom nowy EXE przez shell użytkownika
-        $env:_MEIPASS2 = $null
-        $env:_MEIPASS = $null
-        $env:TCL_LIBRARY = $null
-        $env:TK_LIBRARY = $null
-        Start-Sleep -Seconds 2
-        Start-Process -FilePath $exePath -WorkingDirectory $targetDir
+        # Rygorystyczne wyczyszczenie zmiennych środowiskowych (podwójne ukośniki dla Pythona)
+        Remove-Item -Path "Env:\\_MEIPASS2" -ErrorAction SilentlyContinue
+        Remove-Item -Path "Env:\\_MEIPASS" -ErrorAction SilentlyContinue
+        Remove-Item -Path "Env:\\TCL_LIBRARY" -ErrorAction SilentlyContinue
+        Remove-Item -Path "Env:\\TK_LIBRARY" -ErrorAction SilentlyContinue
+        Remove-Item -Path "Env:\\_PYVENV_LAUNCHER_" -ErrorAction SilentlyContinue
+        
+        Start-Sleep -Seconds 1
+        
+        # Bezpieczne budowanie argumentu i uruchomienie nowej wersji przez Eksplorator
+        $argList = '"{0}"' -f $exePath
+        Start-Process explorer.exe -ArgumentList $argList
 
     }} catch {{
         $label.Text = "Wystąpił błąd podczas aktualizacji."
