@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.95"
+CURRENT_VERSION = "v1.1.94"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -4113,8 +4113,7 @@ $form.Add_Shown({{
         $env:TCL_LIBRARY = $null
         $env:TK_LIBRARY = $null
         Start-Sleep -Seconds 2
-        # Użycie cmd.exe /c start jako fallback, uruchomi aplikację używając powłoki Windows
-        Start-Process -FilePath "cmd.exe" -ArgumentList "/c start \"\" \"$exePath\"" -WorkingDirectory $targetDir
+        Start-Process -FilePath $exePath -WorkingDirectory $targetDir
         
     }} catch {{
         $label.Text = "Wystąpił błąd podczas aktualizacji."
