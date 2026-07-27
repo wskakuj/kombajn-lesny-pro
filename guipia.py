@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.6"
+CURRENT_VERSION = "v1.1.7"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1286,6 +1286,79 @@ class ManualPdfMergeWindow(ctk.CTkToplevel):
             writer.close()
 
 
+class ChangelogWindow(ctk.CTkToplevel):
+    def __init__(self, master, version: str, changelog_text: str):
+        super().__init__(master)
+        self.title(f"Co nowego w wersji {version}?")
+        self.geometry("600x450")
+        self.resizable(False, False)
+        
+        # Wycentrowanie okna względem ekranu
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - 600) // 2
+        y = (screen_height - 450) // 2
+        self.geometry(f"600x450+{x}+{y}")
+
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+
+        # Nagłówek
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="ew")
+        
+        ctk.CTkLabel(
+            header_frame,
+            text=f"Aplikacja została zaktualizowana do wersji {version}! 🎉",
+            font=ctk.CTkFont(family="Segoe UI", size=16, weight="bold"),
+            text_color="#0078D7",
+            wraplength=560,
+            justify="left"
+        ).pack(anchor="w")
+
+        ctk.CTkLabel(
+            header_frame,
+            text="Oto lista zmian i nowości wprowadzonych w tej wersji:",
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            text_color="#A0A0A0"
+        ).pack(anchor="w", pady=(4, 0))
+
+        # Pole tekstowe z opisem zmian (Changelog)
+        self.textbox = ctk.CTkTextbox(
+            self,
+            font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="#1E1E1E",
+            text_color="#E0E0E0",
+            border_width=1,
+            border_color="#333333",
+            corner_radius=6
+        )
+        self.textbox.grid(row=1, column=0, padx=20, pady=(0, 15), sticky="nsew")
+        
+        # Wstawienie opisu zmian
+        content = changelog_text.strip() if changelog_text and changelog_text.strip() else "Brak szczegółowego opisu zmian dla tej wersji."
+        self.textbox.insert("0.0", content)
+        self.textbox.configure(state="disabled")
+
+        # Przycisk "Rozumiem / Zamknij"
+        bottom_frame = ctk.CTkFrame(self, fg_color="transparent")
+        bottom_frame.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="e")
+
+        ctk.CTkButton(
+            bottom_frame,
+            text="Świetnie, rozumiem!",
+            command=self.destroy,
+            fg_color="#0067C0",
+            hover_color="#005A9E",
+            width=140,
+            height=36,
+            corner_radius=4,
+            font=ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        ).pack(side="right")
+
+        self.grab_set()
+
+
 class ModernApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -1379,7 +1452,27 @@ class ModernApp(ctk.CTk):
 
         self.build_ui()
         self.animate_status()
+        self.check_pending_changelog()  # <--- SPRAWDŹ I WYŚWIETL CHANGELOG JEŚLI ISTNIEJE
         self.after(2000, lambda: self.check_github_update(manual=False))
+
+    def check_pending_changelog(self):
+        changelog_file = Path(__file__).parent / "pending_changelog.json"
+        if changelog_file.exists():
+            try:
+                data = json.loads(changelog_file.read_text(encoding="utf-8"))
+                version = data.get("version", CURRENT_VERSION)
+                changelog_text = data.get("changelog", "")
+                
+                # Wyświetl okienko
+                self.after(500, lambda: ChangelogWindow(self, version, changelog_text))
+            except Exception as e:
+                print(f"[INFO] Błąd odczytu pliku changelogu: {e}")
+            finally:
+                # Usunięcie pliku po przeczytaniu, aby okno nie pojawiało się przy kolejnych uruchomieniach
+                try:
+                    changelog_file.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
     # --- METODY DLA HISTORII I DASHBOARDU ---
     def load_history(self):
@@ -2749,6 +2842,20 @@ class ModernApp(ctk.CTk):
                 "Wpisz wartość dla pola Powierzchnia albo odznacz 'Dodaj wiersz z powierzchnią (ha)'.",
             )
             return
+        # Nazwa pliku zawsze z przedrostkiem zależnym od typu dokumentu (UPUL_ / ISL_)
+        doc_prefix = "ISL_" if doc_type == "ISL" else "UPUL_"
+        other_prefix = "UPUL_" if doc_type == "ISL" else "ISL_"
+        out_path_obj = Path(out_path)
+        file_name = out_path_obj.name
+        if file_name.upper().startswith(other_prefix):
+            file_name = file_name[len(other_prefix) :]
+        if not file_name.upper().startswith(doc_prefix):
+            file_name = f"{doc_prefix}{file_name}"
+        if not file_name.lower().endswith(".docx"):
+            file_name = f"{file_name}.docx"
+        out_path = str(out_path_obj.with_name(file_name))
+        vars_dict["output_entry"].delete(0, "end")
+        vars_dict["output_entry"].insert(0, out_path)
         sample_name = "STR_TYT.docx"
         sample_path = get_resource_path(sample_name)
         if not sample_path.exists():
@@ -3839,9 +3946,10 @@ class ModernApp(ctk.CTk):
                                 download_url = asset["browser_download_url"]
                                 break
                         msg = f"Dostępna jest nowa wersja programu: {latest_version}\n(Obecnie używasz: {CURRENT_VERSION})\nCzy chcesz automatycznie pobrać i zainstalować aktualizację?"
+                        changelog_body = data.get("body", "")
                         if messagebox.askyesno("Dostępna aktualizacja!", msg):
                             if download_url:
-                                self.download_and_update(download_url)
+                                self.download_and_update(download_url, latest_version, changelog_body)
                             else:
                                 self.log(
                                     "[UPDATE] Znaleziono wydanie, ale brak pliku .exe w załącznikach. Otwieram stronę..."
@@ -3869,7 +3977,7 @@ class ModernApp(ctk.CTk):
         # WAŻNE: Ta linijka musi być na tym samym poziomie wcięcia co 'def _check():'
         threading.Thread(target=_check, daemon=True).start()
 
-    def download_and_update(self, url):
+    def download_and_update(self, url, new_version, changelog_text=""):
         if not getattr(sys, "frozen", False):
             messagebox.showwarning(
                 "Wersja deweloperska",
@@ -3881,6 +3989,17 @@ class ModernApp(ctk.CTk):
             self.update_status("Uruchamianie aktualizatora...", "#0078D7")
             current_exe_path = Path(sys.executable).resolve()
             pid = os.getpid()
+
+            # Przygotowanie danych do zapisania changelogu po aktualizacji
+            changelog_data = json.dumps({
+                "version": new_version,
+                "changelog": changelog_text
+            }, ensure_ascii=False)
+            
+            # Bezpieczne zakodowanie JSON do Base64, aby uniknąć problemów z cudzysłowami w PowerShellu
+            import base64
+            b64_changelog = base64.b64encode(changelog_data.encode("utf-8")).decode("utf-8")
+
             ps_script = f"""
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -3914,6 +4033,7 @@ $form.Add_Shown({{
     $label.Text = "Pobieranie nowej wersji. To może chwilę potrwać..."
     $form.Refresh()
     $exePath = "{current_exe_path}"
+    $exeDir = [System.IO.Path]::GetDirectoryName($exePath)
     $tempExe = "$env:TEMP\\Kombajn_Najnowszy.exe"
     $url = "{url}"
     try {{
@@ -3939,6 +4059,14 @@ $form.Add_Shown({{
         Start-Sleep -Milliseconds 500
         Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
         Move-Item -Path $tempExe -Destination $exePath -Force
+        
+        # Zapisz plik z informacją o changelogu dla nowo uruchomionej aplikacji
+        $b64Data = "{b64_changelog}"
+        $jsonBytes = [System.Convert]::FromBase64String($b64Data)
+        $jsonText = [System.Text.Encoding]::UTF8.GetString($jsonBytes)
+        $changelogFile = Join-Path $exeDir "pending_changelog.json"
+        [System.IO.File]::WriteAllText($changelogFile, $jsonText, [System.Text.Encoding]::UTF8)
+
         $label.Text = "Zakończono! Uruchamianie nowej wersji..."
         $label.ForeColor = [System.Drawing.Color]::LightGreen
         $progressBar.Style = "Blocks"
