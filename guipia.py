@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.2.24"
+CURRENT_VERSION = "v1.2.25"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -115,405 +115,62 @@ EXCEL_SHEET_DEFAULTS = [
     ("TPM_TH", 5, 9),
 ]
 
-# --- SŁOWNIK TERYTORIALNY (WOJEWÓDZTWO -> POWIAT -> GMINA) ---
-# Aby dodać brakującą gminę, dopisz ją do listy przy odpowiednim powiecie.
-# Format: "NAZWA GMINY" (wielkimi literami, bez odmiany)
-TERRITORY_DATA = {
-    "DOLNOŚLĄSKIE": {
-        "BOLESŁAWIECKI": [
-            "BOLESŁAWIEC",
-            "GROMADKA",
-            "NOWOGRODZIEC",
-            "OSIECZNICA",
-            "WARTA BOLESŁAWIECKA",
-        ],
-        "DZIERŻONIOWSKI": [
-            "DZIERŻONIÓW",
-            "BIELAWA",
-            "PIESZYCE",
-            "NIEMCZA",
-            "ŁAGIEWNIKI",
-        ],
-        "GŁOGOWSKI": ["GŁOGÓW", "JERZMANOWA", "KOTLA", "ŻUKOWICE"],
-        "GÓROWSKI": ["GÓRA", "JEMLNO", "NIECHLÓW", "WĄSOSZ"],
-        "JAWORSKI": ["JAWOR", "BOLKÓW", "MĘCINKA", "PASZOWICE"],
-        "JELENIOGÓRSKI": ["JELENIA GÓRA", "KARPACZ", "SZKLARSKA PORĘBA", "PIECHOWICE"],
-        "KAMIENNOGÓRSKI": ["KAMIENNA GÓRA", "LUBAWKA", "CZARNY BÓR"],
-        "KŁODZKI": [
-            "KŁODZKO",
-            "BYSTRZYCA KŁODZKA",
-            "NOWA RUDA",
-            "POLANICA-ZDRÓJ",
-            "STRONIE ŚLĄSKIE",
-        ],
-        "LEGnicki": ["LEGNICA", "CHOJNÓW", "PROCHOWICE", "KUNICE"],
-        "LUBAŃSKI": ["LUBAŃ", "LEŚNA", "OLSZYNA", "PLATERÓWKA"],
-        "LUBIŃSKI": ["LUBIN", "RUDNA", "ŚCINAWA"],
-        "LWÓWECKI": ["LWÓWEK ŚLĄSKI", "GYLSKO", "MIRSK", "WLEŃ"],
-        "MILICKI": ["MILICZ", "CIESZKÓW", "KROŚNICE"],
-        "OLEŚNICKI": ["OLEŚNICA", "BIERUTÓW", "SYCÓW", "TWARDOGÓRA"],
-        "OŁAWSKI": ["OŁAWA", "JELENIA GÓRA", "DOMANÓW"],
-        "POLKOWICKI": ["POLKOWICE", "CHOCIANÓW", "PRUSICE"],
-        "STRZELIŃSKI": ["STRZELIN", "BORÓW", "KONDORATOWICE"],
-        "ŚREDZKI": ["ŚRODA ŚLĄSKA", "KOSTOMŁOTY", "MIĘKINIA"],
-        "ŚWIDNICKI": ["ŚWIDNICA", "WAŁBRZYCH", "JEDLINA-ZDRÓJ", "SOBOTKA"],
-        "TRZEBNICKI": ["TRZEBNICA", "OBORNIKI ŚLĄSKIE", "ŻMIGRÓD"],
-        "WAŁBRZYSKI": [
-            "WAŁBRZYCH",
-            "BOGUSZÓW-GORCE",
-            "JEDLINA-ZDRÓJ",
-            "SZCZAWNO-ZDRÓJ",
-        ],
-        "WOŁOWSKI": ["WOŁÓW", "BRZEG DOLNY", "WIŃSKO"],
-        "WROCŁAWSKI": [
-            "WROCŁAW",
-            "DŁUGOŁĘKA",
-            "KĄTY WROCŁAWSKIE",
-            "SOBOTKA",
-            "ŻÓRAWINA",
-        ],
-        "ZĄBKOWICKI": ["ZĄBKOWICE ŚLĄSKIE", "BARDO", "KAMIEŃEC ZĄBKOWICKI"],
-        "ZGORZELECKI": ["ZGORZELEC", "BOGATYNIA", "PIEŃSK", "WĘGLINIEC"],
-        "ZŁOTORYJSKI": ["ZŁOTORYJA", "CHOJNÓW", "ŚWIERADÓW-ZDRÓJ"],
-    },
-    "KUJAWSKO-POMORSKIE": {
-        "ALEKSANDROWSKI": ["ALEKSANDRÓW KUJAWSKI", "CIECHOCINEK", "NIESZAWA"],
-        "BRODNICKI": ["BRODNICA", "JABŁONOWO POMORSKIE", "ZBICZNO"],
-        "BYDGOSKI": ["BYDGOSZCZ", "KORONOWO", "SOLCUJ KUJAWSKI", "DOBRZYNIEWO DUŻE"],
-        "CHEŁMIŃSKI": ["CHEŁMNO", "UNISŁAW", "STOLNO", "KIJEW KRÓLEWSKIE"],
-        "GOLUBSKO-DOBRZYŃSKI": ["GOLUB-DOBRZYŃ", "KOWALEWO POMORSKIE"],
-        "GRUDZIĄDZKI": ["GRUDZIĄDZ", "ŁASIN", "RADZYŃ CHEŁMIŃSKI", "GRUTA"],
-        "INOWROCŁAWSKI": ["INOWROCŁAW", "KRUSZWICA", "JANIKOWO", "PAKOSC"],
-        "LIPNOWSKI": ["LIPNO", "DOBRYŃ NAD WISŁĄ", "SKĘPE"],
-        "MOGILEŃSKI": ["MOGILNO", "STRZELNO", "DĄBROWA"],
-        "NAKIELSKI": ["NAKŁO NAD NOTECIĄ", "SZUBIN", "KCYNIA", "SADKI"],
-        "RADZIEJOWSKI": ["RADZIEJÓW", "PIOTRKÓW KUJAWSKI", "TOPÓLKA"],
-        "RYPIŃSKI": ["RYPIN", "BRZUZE", "SKRWILNO"],
-        "SĘPOLEŃSKI": ["SĘPÓLNO KRAJEŃSKIE", "WIĘCBORK", "KAMIEŃ KRAJEŃSKI"],
-        "ŚWIECKI": ["ŚWIECIE", "NOWE", "PRUSZCZ", "DRZYCIM"],
-        "TORUŃSKI": ["TORUŃ", "CHEŁMŻA", "ŁYSOMICE", "OBROWO"],
-        "TUCHOLSKI": [
-            "TUCHOLA",
-            "CEKCYN",
-            "LUBIEWO",
-            "ŚWIEKATOWO",
-            "GOSTYCYN",
-            "KĘSOWO",
-        ],
-        "WĄBRZEŹSKI": ["WĄBRZEŹNO", "RYŃSK", "PŁUŻNICA", "DEBOWA ŁĄKA"],
-        "WŁOCŁAWSKI": ["WŁOCŁAWEK", "BRZEŚĆ KUJAWSKI", "CHOCEŃ", "IZBICA KUJAWSKA"],
-        "ŻNIŃSKI": ["ŻNIN", "BARCIN", "ŁABISZYN", "ROGOŹNO"],
-    },
-    "LUBELSKIE": {
-        "BIALSKI": [
-            "BIAŁA PODLASKA",
-            "MIĘDZYRZEC PODLASKI",
-            "TERESPOL",
-            "JANÓW PODLASKI",
-        ],
-        "BIŁGORAJSKI": ["BIŁGORAJ", "FRAMPOL", "TARNogród"],
-        "CHEŁMSKI": ["CHEŁM", "REJOWIEC FABRYCZNY", "WÓJKA"],
-        "HRUBIESZOWSKI": ["HRUBIESZÓW", "WERbkowice", "MIRCZE"],
-        "JANOWSKI": ["JANÓW LUBELSKI", "MODLIBORZYCE"],
-        "KRASNOSTAWSKI": ["KRASNYSTAW", "IZBICA", "SIENNICA RÓŻANA"],
-        "KRAŚNICKI": ["KRAŚNIK", "ANNOPOL", "URZĘDÓW"],
-        "LUBARTOWSKI": ["LUBARTÓW", "PARCZEW", "OSTRÓW LUBELSKI"],
-        "LUBELSKI": ["LUBLIN", "BYCHAWA", "PIASKI", "NIEDRZWICA DUŻA"],
-        "ŁĘCZYŃSKI": ["ŁĘCZNA", "CYCÓW", "SPICZYN"],
-        "OPOLSKI": ["OPOLE LUBELSKIE", "PONIA TOWA", "JÓZEFÓW NAD WISŁĄ"],
-        "PARCZEWSKI": ["PARCZEW", "DĘBOWA KŁODA"],
-        "PUŁAWSKI": ["PUŁAWY", "NAŁĘCZÓW", "KAZIMIERZ DOLNY", "KOŃSKOWOLA"],
-        "RADZYŃSKI": ["RADZYŃ PODLASKI", "CZEMIERNIKI", "WOJCIESZKÓW"],
-        "RYCKI": ["RYKI", "DĘBLIN", "STĘŻYCA"],
-        "ŚWIDNICKI": ["ŚWIDNIK", "PIASKI", "MEŁGIEW"],
-        "TOMASZOWSKI": ["TOMASZÓW LUBELSKI", "TARNawatka", "SUSIEC"],
-        "WŁODAWSKI": ["WŁODAWA", "HAŃSK", "WYRYKI"],
-        "ZAMOJSKI": ["ZAMOŚĆ", "SZCZEBRZESZYN", "ZWIERZYNIEC", "KRASNOBRÓD"],
-    },
-    "LUBUSKIE": {
-        "GORZOWSKI": ["GORZÓW WIELKOPOLSKI", "KOSTRZYN NAD ODRĄ", "WITNICA"],
-        "KROŚNIEŃSKI": ["KROSNO ODRZAŃSKIE", "GUBIN", "BYTNICA"],
-        "MIĘDZYRZECKI": ["MIĘDZYRZECZ", "SKWIERZYNA", "TRZCIEL"],
-        "NOWOSOLSKI": ["NOWA SÓL", "KOŻUCHÓW", "OTYŃ"],
-        "SŁUBICKI": ["SŁUBICE", "RZEPIN", "CYBINKA"],
-        "STRZELECKO-DREZDENECKI": ["STRZELCE KRAJEŃSKIE", "DREZDENKO", "DOBE GNIEW"],
-        "SULĘCIŃSKI": ["SULĘCIN", "TORZYM", "ŁAGÓW"],
-        "ŚWIEBODZIŃSKI": ["ŚWIEBODZIN", "ZBĄSZYNEK", "SKĄPE"],
-        "WSCHOWSKI": ["WSCHOWA", "SŁAWA", "SZLICHTYNGOWA"],
-        "ZIELONOGÓRSKI": ["ZIELONA GÓRA", "NOWOGRÓD BOBRZAŃSKI", "SUlechów"],
-        "ŻAGAŃSKI": ["ŻAGAŃ", "ŻARY", "MAŁOMICE"],
-        "ŻARSKI": ["ŻARY", "LUBSKO", "JASIEŃ"],
-    },
-    "ŁÓDZKIE": {
-        "BEŁCHATOWSKI": ["BEŁCHATÓW", "ZELÓW", "DRUZBICE"],
-        "BRZEZIŃSKI": ["BRZEZINY", "JEŻÓW", "Dmosin"],
-        "KUTNOWSKI": ["KUTNO", "ŻYCHLIN", "KROŚNIEWICE"],
-        "ŁASKI": ["ŁASK", "ZELÓW", "BUCCZE"],
-        "ŁĘCZYCKI": ["ŁĘCZYCA", "OZORKÓW", "PIĄTEK"],
-        "ŁOWICKI": ["ŁOWICZ", "SKIERNIEWICE", "BOLIMÓW"],
-        "ŁÓDZKI WSCHODNI": ["ŁÓDŹ", "KOLUSZKI", "TUSZYN", "ANDRESPOL"],
-        "OPCZYŃSKI": ["OPCZNO", "DRZEWCICA", "ŻARNÓW"],
-        "PABIANICKI": ["PABIANICE", "KSAWERÓW", "LUTOMIERSK"],
-        "PAJĘCZAŃSKI": ["PAJĘCZNO", "DLUTÓW", "RZĄŚNIA"],
-        "PIOTRKOWSKI": ["PIOTRKÓW TRYBUNALSKI", "BEŁCHATÓW", "WOLA KRZYSZTOPORSKA"],
-        "PODDĘBICKI": ["PODDĘBICE", "UNIEJÓW", "WARTKOWICE"],
-        "RADOMSzczański": ["RADOMSKO", "PRZEDBÓRZ", "KAMIEŃSK"],
-        "RAWski": ["RAVA MAZOWIECKA", "BIAŁA RAWSKA", "REGNÓW"],
-        "Sieradzki": ["SIERADZ", "ZDUŃSKA WOLA", "WRÓBLEW"],
-        "SKIERNIEWICKI": ["SKIERNIEWICE", "GŁUCHÓW", "MAKÓW"],
-        "Tomaszowski": ["TOMASZÓW MAZOWIECKI", "ULEJÓW", "ŻELECHLINEK"],
-        "WIELUŃSKI": ["WIELUŃ", "MOKRSKO", "RUDNIKI"],
-        "WIERUSZOWSKI": ["WIERUSZÓW", "BOLESŁAWIEC", "ŁUBNICE"],
-        "ZGIERSKI": ["ZGIERZ", "ALEKSANDRÓW ŁÓDZKI", "STRYKÓW"],
-    },
-    "MAŁOPOLSKIE": {
-        "BOCHEŃSKI": ["BOCHNIA", "BRZESKO", "NOWY WIŚNICZ"],
-        "BRZESKI": ["BRZESKO", "CZCHÓW", "DĘBNO"],
-        "CHRZANOWSKI": ["CHRZANÓW", "TRZEBINIA", "LIBIĄŻ"],
-        "DĄBROWSKI": ["DĄBROWA TARNOWSKA", "ŻABNO", "RADŁÓW"],
-        "GORLICKI": ["GORLICE", "BIECZ", "BOBRÓWKA"],
-        "KRAKOWSKI": ["KRAKÓW", "WIELICZKA", "SKAWINA", "ZABIERZÓW", "LISZKI"],
-        "LIMANOWSKI": ["LIMANOWA", "MSZANA DOLNA", "KAMIONKA WIELKA"],
-        "MYŚLENICKI": ["MYŚLENICE", "DOBczyce", "SUŁKOWICE"],
-        "NOWOSĄDECKI": ["NOWY SĄCZ", "STARY SĄCZ", "PIWNICZNA-ZDRÓJ", "KORZENNA"],
-        "NOWOTARSKI": ["NOWY TARG", "RABKA-ZDRÓJ", "SZCZAWNICA", "CZORSZTYN"],
-        "OLKUSKI": ["OLKUSZ", "BUKOWNO", "TRZCIANA"],
-        "OŚWIĘCIMSKI": ["OŚWIĘCIM", "KĘTY", "ZATOR", "BRZESzcze"],
-        "PROSZOWICKI": ["PROSZOWICE", "NOWE BRZESKO", "KOSZYCE"],
-        "SUSKI": ["SUCHA BESKIDZKA", "MAKÓW PODHALAŃSKI", "JORDANÓW"],
-        "TARNOWSKI": ["TARNÓW", "ŻABNO", "RADŁÓW", "Wierzchosławice"],
-        "TATRZAŃSKI": ["ZAKOPANE", "PORONIN", "BIAŁY DUNAJEC"],
-        "WADOWICKI": ["WADOWICE", "ANDRYCHÓW", "KALWARIA ZEBRZYDOWSKA"],
-        "WIELICKI": ["WIELICZKA", "NIEPOŁOMICE", "GDÓW"],
-    },
-    "MAZOWIECKIE": {
-        "BIAŁOBRZESKI": ["BIAŁOBRZEGI", "WYŚMIERZYCE", "PROMNA"],
-        "CIECHANOWSKI": ["CIECHANÓW", "GLINOJECK", "SOŃSK"],
-        "GARWOLIŃSKI": ["GARWOLIN", "ŁASKARZEW", "ŻELECHÓW"],
-        "GOSTYNIŃSKI": ["GOSTYNIN", "SANNIKI", "SZCZAWIN KOŚCIELNY"],
-        "GRODZISKI": ["GRODZISK MAZOWIECKI", "MILANÓWEK", "PODKOWA LEŚNA"],
-        "GRÓJECKI": ["GRÓJEC", "WARKA", "NOWE MIASTO NAD PILICĄ"],
-        "KOZIENICKI": ["KOZIENICE", "PIONKI", "GNIEWOSZÓW"],
-        "LEGIONOWSKI": ["LEGIONOWO", "SEROCK", "JABŁONNA"],
-        "LIPSKI": ["LIPSKO", "SOLec NAD WISŁĄ", "CIEPIELÓW"],
-        "ŁOSICKI": ["ŁOSICE", "SARNaki", "HUŚCZEW"],
-        "MAKOWSKI": ["MAKÓW MAZOWIECKI", "RÓŻAN", "KARNIEWO"],
-        "MIŃSKI": ["MIŃSK MAZOWIECKI", "SULEJÓWEK", "KAŁUSZYN"],
-        "MŁAWSKI": ["MŁAWA", "DZIERZGOWO", "SZYDŁOWO"],
-        "NOWODWORSKI": ["NOWY DWÓR MAZOWIECKI", "NASIELSK", "POMIECHÓWEK"],
-        "OSTROŁĘCKI": ["OSTROŁĘKA", "MYŚLINIEC", "CZERWIN"],
-        "OSTROWSKI": ["OSTRÓW MAZOWIECKA", "MAŁKINIA GÓRNA", "BROK"],
-        "OTWOCKI": ["OTWOCK", "JÓZEFÓW", "KARCZEW"],
-        "PIASECZYŃSKI": ["PIASECZNO", "KONSTANCIN-JEZIORNA", "GÓRA KALWARIA"],
-        "PŁOCKI": ["PŁOCK", "GĄBIN", "WYSZOGRÓD"],
-        "PŁOŃSKI": ["PŁOŃSK", "RACIĄŻ", "SOCHOCIN"],
-        "PRUSZKOWSKI": ["PRUSZKÓW", "PIASTÓW", "MICHAŁOWICE"],
-        "PRZASNYSKI": ["PRZASNYSZ", "CHORZELE", "JEDNOROŻEC"],
-        "PRZYSUSKI": ["PRZYSUCHA", "WYŚMIERZYCE", "ODRZYWÓŁ"],
-        "PUŁTUSKI": ["PUŁTUSK", "WYSZKÓW", "OBRYTE"],
-        "RADOMSKI": ["RADOM", "PIONKI", "JEDLIŃSK"],
-        "SIEDLECKI": ["SIEDLCE", "ŁOSICE", "MORDY"],
-        "SIERPCZY": ["SIERPCE", "ŻUROMIN", "BIEŻUŃ"],
-        "SOCHACZEWSKI": ["SOCHACZEW", "TERESIN", "NOWA SUCHA"],
-        "SOKOŁOWSKI": ["SOKOŁÓW PODLASKI", "KOSÓW LACKI", "STERDYŃ"],
-        "SZYDŁOWIECKI": ["SZYDŁOWIEC", "CHLEWISKA", "JASTRZĄB"],
-        "WARSZAWSKI ZACHODNI": ["WARSZAWA", "BŁONIE", "ŁOMIANKI", "IZABELIN"],
-        "WĘGROWSKI": ["WĘGRÓW", "LIW", "SADOWNIK"],
-        "WOŁOMIŃSKI": ["WOŁOMIN", "ZĄBKI", "MARKI", "RADZYMIN"],
-        "WYSZKOWSKI": ["WYSZKÓW", "BRAŃSZCZYK", "ZABRODZIE"],
-        "ZWOleński": ["ZWOLEŃ", "WILGA", "ŁASKARZEW"],
-        "ŻUROMIŃSKI": ["ŻUROMIN", "BIEŻUŃ", "LUBOWIDZ"],
-        "ŻYRARDOWSKI": ["ŻYRARDÓW", "MSZCZONÓW", "PUSZCZA MARIAŃSKA"],
-    },
-    "OPOLSKIE": {
-        "BRZESKI": ["BRZEG", "GRODKÓW", "LEWIN BRZESKI"],
-        "GŁUBCZYCKI": ["GŁUBCZYCE", "Kietrz", "Baborów"],
-        "KĘDZIERZYŃSKO-KOZIELSKI": ["KĘDZIERZYN-KOŹLE", "REŃSKA WIEŚ", "PAWŁOWICZKI"],
-        "KLUCZBORSKI": ["KLUCZBORK", "BYCZYNA", "WOŁCZYN"],
-        "KRAPKOWICKI": ["KRAPKOWICE", "GOGOLIN", "Zdzieszowice"],
-        "NAMYSŁOWSKI": ["NAMYSŁÓW", "POKÓJ", "DOMASZOWICE"],
-        "NYSKI": ["NYSA", "GŁUCHOŁAZY", "PACZKÓW", "OTMUCHÓW"],
-        "OLESKI": ["OLEŚNO", "PRASZKA", "DOBRODZIEŃ"],
-        "OPOLSKI": ["OPOLE", "NIEMODLIN", "TUŁOWICE", "KOMPRACHCICE"],
-        "PRUDNICKI": ["PRUDNIK", "GŁOGÓWEK", "BIAŁA"],
-        "STRZELECKI": ["STRZELCE OPOLSKIE", "ZAWADZKIE", "KOLONOWSKIE"],
-    },
-    "PODKARPACKIE": {
-        "BIESZCZADZKI": ["USTRIKI DOLNE", "CZARNA", "BALIGRÓD"],
-        "BRZOZOWSKI": ["BRZOZÓW", "HACZÓW", "NOZDRZEC"],
-        "DĘBICKI": ["DĘBICA", "PILZNO", "ŻYRAKÓW"],
-        "JAROSŁAWSKI": ["JAROSŁAW", "RADYMNO", "PRUCHNIK"],
-        "JASIeLSKI": ["JASŁO", "KOŁACZYCE", "NOWY ŻMIGRÓD"],
-        "KOLBUSZOWSKI": ["KOLBUSZOWA", "MAJDAN KRÓLEWSKI", "RANIŻÓW"],
-        "KROŚNIEŃSKI": ["KROSNO", "DUKLA", "RYMANÓW", "IWONICZ-ZDRÓJ"],
-        "LESKI": ["LESKO", "SOLINA", "BALIGRÓD"],
-        "LEŻAJSKI": ["LEŻAJSK", "NOWA SARZYNA", "RUDNIK NAD SANEM"],
-        "LUBACZOWSKI": ["LUBACZÓW", "CIESZANÓW", "NAROL"],
-        "ŁAŃCUCKI": ["ŁAŃCUT", "CZARNA", "MARKOWA"],
-        "MIELECKI": ["MIELEC", "KOLBUSZOWA", "PRZECŁAW"],
-        "NIżański": ["NIŻANKO", "RUDNIK NAD SANEM", "JEŻOWE"],
-        "PRZEMYSKI": ["PRZEMYŚL", "BIRCZA", "FREDROPOL"],
-        "PRZEWORSKI": ["PRZEWORSK", "KAŃCZUGA", "Sieniawa"],
-        "ROPCZYCKO-SĘDZISZOWSKI": ["ROPCZYCE", "SĘDZISZÓW MAŁOPOLSKI", "OSTRÓW"],
-        "RZESZOWSKI": ["RZESZÓW", "ŁAŃCUT", "GŁOGÓW MAŁOPOLSKI", "TRZEBOWNISKO"],
-        "SANOCKI": ["SANOK", "ZAGÓRZ", "BUKOWSKO"],
-        "STALOWOWOLSKI": ["STALOWA WOLA", "BOJANÓW", "ZALESZANY"],
-        "STRZYŻOWSKI": ["STRZYŻÓW", "CZUDE C", "WIŚNIOWA"],
-        "TARNOBRZESKI": ["TARNOBRZEG", "NOWA DĘBA", "BARANÓW SANDOMIERSKI"],
-    },
-    "PODLASKIE": {
-        "AUGUSTOWSKI": ["AUGUSTÓW", "LIPSK", "SZTABIN"],
-        "BIAŁOSTOCKI": ["BIAŁYSTOK", "ŁAPY", "SUPRAŚL", "WASILIÓW", "CHOROSZCZ"],
-        "BIELSKI": ["BIELSK PODLASKI", "BRAŃSK", "WYSOKIE MAZOWIECKIE"],
-        "GRAJEWSKI": ["GRAJEWO", "RAJGRÓD", "SZCZUCZYN"],
-        "HAJNOWSKI": ["HAJNÓWKA", "KLESZCZELE", "NAREW"],
-        "KOLNEŃSKI": ["KOLNO", "STAWISKI", "TUREŚL"],
-        "ŁOMŻYŃSKI": ["ŁOMŻA", "JEDWABNE", "PIĄTNICA"],
-        "MONIECKI": ["MOŃKI", "KNYSZYN", "GONIĄDZ"],
-        "SEJNEŃSKI": ["SEJNY", "KRASNOPOL", "PUŃSK"],
-        "SIEMIATYCKI": ["SIEMIATYCZE", "DROHICZYN", "PERLEJEWO"],
-        "SOKÓLSKI": ["SOKÓŁKA", "SUPRAŚL", "DĄBROWA BIAŁOSTOCKA"],
-        "SUWALSKI": ["SUWAŁKI", "RACZKI", "FILIPÓW"],
-        "WYSOKOMAZOWIECKI": ["WYSOKIE MAZOWIECKIE", "CIECHANOWIEC", "SZEPETOWO"],
-        "ZAMBROWSKI": ["ZAMBRÓW", "CZYŻEW", "RUTKI"],
-    },
-    "POMORSKIE": {
-        "BYTOWSKI": ["BYTÓW", "MIAStko", "BORZY Tuchomskie"],
-        "CHOJNICKI": ["CHOJNICE", "CZERSK", "BRUSY"],
-        "CZŁUCHOWSKI": ["CZŁUCHÓW", "DEBRZNO", "CZARNE"],
-        "GDAŃSKI": ["GDAŃSK", "PRUSZCZ GDAŃSKI", "TRĄBKI WIELKIE", "KOLBUDY"],
-        "KARTUSKI": ["KARTUZY", "ŻUKOWO", "SIERAKOWICE", "PRZODKOWO"],
-        "KOŚCIERSKI": ["KOŚCIERZYNA", "NOWA KARCZMA", "LINIEWO"],
-        "KWIDZYŃSKI": ["KWIDZYN", "PRABUTY", "RYJEWO"],
-        "LĘBORSKI": ["LĘBORK", "ŁEBA", "NOWA WIEŚ LĘBORSKA"],
-        "MALBORSKI": ["MALBORK", "NOWY STAW", "STARE POLE"],
-        "NOWODWORSKI": ["NOWY DWÓR GDAŃSKI", "STEgna", "SZTUTOWO"],
-        "PUCKI": ["PUCK", "HEL", "JASTARNIA", "WLADYSŁAWOWO"],
-        "SŁUPSKI": ["SŁUPSK", "USTKA", "KĘPICE", "DĘBNICA KASZUBSKA"],
-        "STAROGARDZKI": ["STAROGARD GDAŃSKI", "PELPLIN", "SKÓRCZ", "ZBLEWO"],
-        "SZTUMSKI": ["SZTUM", "DZIERZGOŃ", "STARY TARG"],
-        "TCZEWSKI": ["TCZEW", "GNIEW", "SUBKOWY"],
-        "WEJHEROWSKI": ["WEJHEROWO", "RUMIA", "RED A", "LUZINO"],
-    },
-    "ŚLĄSKIE": {
-        "BĘDZIŃSKI": ["BĘDZIN", "Czeladź", "WOJKOWICE"],
-        "BIELSKI": ["BIELSKO-BIAŁA", "CZECHOWICE-DZIEDZICE", "SZCZYRK"],
-        "BYTOMSKI": ["BYTOM", "RADZIONKÓW"],
-        "CHORZOWSKI": ["CHORZÓW"],
-        "CIESZYŃSKI": ["CIESZYN", "USTROŃ", "WISŁA", "SKOCZÓW"],
-        "CZĘSTOCHOWSKI": ["CZĘSTOCHOWA", "BLACHOWNIA", "KONIECPOL"],
-        "DĄBROWSKI": ["DĄBROWA GÓRNICZA", "SŁawków"],
-        "GLIWICKI": ["GLIWICE", "KNURÓW", "PYSKOWICE"],
-        "JAWORZNO": ["JAWORZNO"],
-        "KATOWICKI": ["KATOWICE", "MIKOŁÓW", "MYSŁOWICE"],
-        "KŁOBUCKI": ["KŁOBUCK", "KRZEPICE", "OPATÓW"],
-        "LUBLINIECKI": ["LUBLINIEC", "MIASTEczko ŚLĄSKIE", "WOŹNIKI"],
-        "MYSŁOWICKI": ["MYSŁOWICE"],
-        "PIEKARSKI": ["PIEKARY ŚLĄSKIE"],
-        "PSZCZYŃSKI": ["PSZCZYNA", "SUSZEC", "PAWŁOWICE"],
-        "RACIBORSKI": ["RACIBÓRZ", "RYDULTOWY", "KUŹNIA RACIBORSKA"],
-        "RUDZKI": ["RUDA ŚLĄSKA"],
-        "RYBNICKI": ["RYBNIK", "ŻORY", "Czerwionka-Leszczyny"],
-        "SIEMIANOWICKI": ["SIEMIANOWICE ŚLĄSKIE"],
-        "SOSNOWIECKI": ["SOSNOWIEC"],
-        "ŚWIĘTOCHŁOWICKI": ["ŚWIĘTOCHŁOWICE"],
-        "TARNOGÓRSKI": ["TARNOWSKIE GÓRY", "KALETY", "MIASTEczko ŚLĄSKIE"],
-        "TYCHSKI": ["TYCHY", "BIERUŃ", "LĘDZINY"],
-        "WODZISŁAWSKI": ["WODZISŁAW ŚLĄSKI", "JASTRZĘBIE-ZDRÓJ", "RYDUŁTOWY"],
-        "ZABRZAŃSKI": ["ZABRZE"],
-        "ZAWIERCIAŃSKI": ["ZAWIERCIE", "PORĘBA", "LAZY"],
-        "ŻYwiecki": ["ŻYWIEC", "WĘGIERSKA GÓRKA", "MILÓWKA"],
-    },
-    "ŚWIĘTOKRZYSKIE": {
-        "BUSKI": ["BUSKO-ZDRÓJ", "STOPNICA", "WIŚLICA"],
-        "JĘDRZEJOWSKI": ["JĘDRZEJÓW", "MAŁOGOSZCZ", "WODZISŁAW"],
-        "KAZIMIERSKI": ["KAZIMIERZA WIELKA", "SKALBMIErz", "CZARNOCIN"],
-        "KIELECKI": ["KIELCE", "CHĘCINY", "DALESZYCE", "MASŁÓW"],
-        "KONECKI": ["KOŃSKIE", "STAPORKÓW", "RUDA MALENIECKA"],
-        "OPATOWSKI": ["OPATÓW", "OŻARÓW", "LIPOWEK"],
-        "OSTROWIECKI": ["OSTROWIEC ŚWIĘTOKRZYSKI", "ĆMIELÓW", "KUNÓW"],
-        "PIŃCZOWSKI": ["PIŃCZÓW", "DZIAŁOSZYCE", "ZŁOTA"],
-        "SANDOMIERSKI": ["SANDOMIERZ", "ZAWICHOST", "KLIMONTÓW"],
-        "SKARŻYSKI": ["SKARŻYSKO-KAMIENNA", "SUCHEDNIÓW", "ŁĄCZNA"],
-        "STARACHOWICKI": ["STARACHOWICE", "WĄCHOCK", "PAWŁÓW"],
-        "STASZOWSKI": ["STASZÓW", "POŁANIEC", "OSIEK"],
-        "WŁOSZCZOWSKI": ["WŁOSZCZOWA", "JĘDRZEJÓW", "RADKÓW"],
-    },
-    "WARMIŃSKO-MAZURSKIE": {
-        "BARTOSZYCKI": ["BARTOSZYCE", "BISKUPIEC", "GOROWO ILAWSKIE"],
-        "BRANIEWSKI": ["BRANIEWO", "FROMBORK", "PIENIĘŻNO"],
-        "DZIAŁDOWSKI": ["DZIAŁDOWO", "LIDZBARK", "NISKA"],
-        "ELBLĄSKI": ["ELBLĄG", "PASŁĘK", "TOLKMICKO"],
-        "EŁCKI": ["EŁK", "ORZYSZ", "PROSTKI"],
-        "GIŻYCKI": ["GIŻYCKO", "RYN", "WYDMINY"],
-        "GOŁDAPSKI": ["GOŁDAP", "BANIE MAZURSKIE"],
-        "ILAWSKI": ["ILAWA", "LUBAWA", "ZALEWO"],
-        "KĘTRZYŃSKI": ["KĘTRZYN", "RESZEL", "KORSZE"],
-        "LIDZBARSKI": ["LIDZBARK WARMIŃSKI", "ORNETA", "BISKUPIEC"],
-        "MRĄGOWSKI": ["MRĄGOWO", "MIKOŁAJKI", "PIECKI"],
-        "NIDZICKI": ["NIDZICA", "JANOWIEC KOŚCIELNY"],
-        "NOWOMIEJSKI": ["NOWE MIASTO LUBAWSKIE", "BISKUPIEC", "KURZĘTNIK"],
-        "OLECKI": ["OLECKO", "KOWALE OLECKIE", "ŚWIĘTAJNO"],
-        "OLSZTYŃSKI": ["OLSZTYN", "BARCZEWO", "DYWITY", "JEZIORANY"],
-        "OSTRÓDZKI": ["OSTRÓDA", "MORĄG", "MIŁOMŁYN"],
-        "PISKI": ["PISZ", "BIAŁA PISKA", "ORZYSZ"],
-        "SZCZYCIEŃSKI": ["SZCZYTNO", "PASYM", "WIELBARK"],
-        "WĘGORZEWSKI": ["WĘGORZEWO", "POZEZDRZE"],
-    },
-    "WIELKOPOLSKIE": {
-        "CHODZIESKI": ["CHODZIEŻ", "OBORNIKI", "SZAMOCIN"],
-        "CZARNKOWSKO-TRZCIANECKI": ["CZARNKÓW", "TRZCIANKA", "KRZYŻ WIELKOPOLSKI"],
-        "GNIEŹNIEŃSKI": ["GNIEZNO", "WITKOWO", "TRZEMESZNO"],
-        "GOSTYŃSKI": ["GOSTYŃ", "KROBIA", "PONIEC"],
-        "GRODZISKI": ["GRODZISK WIELKOPOLSKI", "WOLSZTYN", "RAKONIEWICE"],
-        "JAROCIŃSKI": ["JAROCIN", "ŻERKÓW", "KOTLIN"],
-        "KALISKI": ["KALISZ", "Opatówek", "STAWISZYN"],
-        "KĘPIŃSKI": ["KĘPNO", "BARANÓW", "Rychtal"],
-        "KOLSKI": ["KOŁO", "KŁODAWA", "SOMPOLNO"],
-        "KONIŃSKI": ["KONIN", "TUR EK", "GOLINA"],
-        "KOSTYŃSKI": ["KOSTYN", "KROBIA", "Borek Wielkopolski"],
-        "KROTOSZYŃSKI": ["KROTOSZYN", "ZDUNY", "SULMIERZYCE"],
-        "LESZCZYŃSKI": ["LESZNO", "WLOSZAKOWICE", "ŚWIĘCIECHOWA"],
-        "MIĘDZYCHODZKI": ["MIĘDZYCHÓD", "SIERAKÓW", "KWILCZ"],
-        "NOWOTOMYSKI": ["NOWY TOMYŚL", "ZBĄSZYŃ", "OPALENICA"],
-        "OBORNICKI": ["OBORNIKI", "ROGOŹNO", "RYCZYWÓŁ"],
-        "OSTROWSKI": ["OSTRÓW WIELKOPOLSKI", "NOWE SKALMIERZYCE", "RASZKÓW"],
-        "OSTRZESZOWSKI": ["OSTRZESZÓW", "GRABÓW NAD PROSNĄ", "MIKSTAT"],
-        "PILSKI": ["PIŁA", "WYSOKA", "UJŚCIE"],
-        "PLESZEWSKI": ["PLESZEW", "DOBRZYCA", "CZERMIN"],
-        "POZNAŃSKI": ["POZNAŃ", "SWARZĘDZ", "LUBOŃ", "TARNOWO PODGÓRNE", "MOSINA"],
-        "RAWICKI": ["RAWICZ", "BOJANOWO", "JUTROSIN"],
-        "SLUPSKI": ["SLUPCA", "ZAGÓRÓW", "LĄDEK"],
-        "ŚREDZKI": ["ŚRODA WIELKOPOLSKA", "DOMINOWO", "KRZYKOSY"],
-        "ŚREMSKI": ["ŚREM", "DOLS K", "KSIĄŻ WIELKOPOLSKI"],
-        "TRZCIANECKI": ["TRZCIANKA", "CZARNKÓW"],
-        "TURECKI": ["TUREK", "UNIEJÓW", "WŁADYSŁAWÓW"],
-        "WĄGROWIECKI": ["WĄGROWIEC", "SKOKI", "GOŁAŃCZ"],
-        "WOLSZTYŃSKI": ["WOLSZTYN", "PRZEMĘT", "SIEDLEC"],
-        "WRZESIŃSKI": ["WRZEŚNIA", "NEKL A", "PYZDRY"],
-        "ZŁOTOWSKI": ["ZŁOTÓW", "JASTROWIE", "OKONEK"],
-    },
-    "ZACHODNIOPOMORSKIE": {
-        "BIAŁOGARDZKI": ["BIAŁOGARD", "KARLINO", "TYCHOWO"],
-        "CHOŚCZEŃSKI": ["CHOŚCZNO", "DRAWNO", "PEŁCZYCE"],
-        "DRAWSKI": ["DRAWSKO POMORSKIE", "CZAPLINEK", "ZŁOCIENIEC"],
-        "GOLENIOWSKI": ["GOLENIÓW", "NOWOGARD", "MASZEWO"],
-        "GRYFICKI": ["GRYFICE", "TRZEBIATÓW", "REWAL"],
-        "GRYFIŃSKI": ["GRYFINO", "CHOJNA", "CEDYNIA"],
-        "KAMIEŃSKI": ["KAMIEŃ POMORSKI", "MIĘDZYZDROJE", "WOLIN"],
-        "KOŁOBRZESKI": ["KOŁOBRZEG", "GOŚCINO", "DYWÓW"],
-        "KOSZALIŃSKI": ["KOSZALIN", "BOBOLICE", "POLANÓW"],
-        "ŁOBESKI": ["ŁOBEZ", "RESKO", "WĘGORZYNO"],
-        "MYŚLIBORSKI": ["MYŚLIBÓRZ", "BARLINEK", "DĘBNO"],
-        "POLICKI": ["POLICE", "NOWE WARPNO", "DOBRA"],
-        "PYRZYCKI": ["PYRZYCE", "LIPANY", "PRZECLAW"],
-        "SŁAWIEŃSKI": ["SŁAWNO", "DARŁOWO", "MALECHOWO"],
-        "STARGARDZKI": ["STARGARD", "CHOCIWEL", "DOBRZANY"],
-        "SZCZECINECKI": ["SZCZECINEK", "BIAŁY BÓR", "BARWICE"],
-        "ŚWIDWIŃSKI": ["ŚWIDWIN", "POŁCZYN-ZDRÓJ", "SŁAWOBORZE"],
-        "WAŁECKI": ["WAŁCZ", "CZŁOPA", "TUCZNO"],
-    },
-}
+# --- DANE TERYTORIALNE (WCZYTYWANE Z PLIKU ZEWNĘTRZNEGO) ---
+# Plik: config/territory.json
+# Dzięki temu można edytować listę województw / powiatów / gmin bez kompilowania EXE.
+
+def _get_app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = _get_app_dir()
+CONFIG_DIR = APP_DIR / "config"
+TERRITORY_DATA_FILE = CONFIG_DIR / "territory.json"
+
+
+def load_territory_data() -> dict:
+    candidates = [TERRITORY_DATA_FILE]
+
+    # Jeśli plik jest wbudowany w EXE przez PyInstaller, spróbuj go znaleźć w _MEIPASS
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "config" / "territory.json")
+
+    # Fallback dla uruchomienia developerskiego
+    try:
+        candidates.append(Path(__file__).resolve().parent / "config" / "territory.json")
+    except Exception:
+        pass
+
+    for path in candidates:
+        try:
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+
+                if isinstance(data, dict) and data:
+                    # Jeśli wczytano z zasobów wbudowanych, a nie ma jeszcze pliku
+                    # przy EXE, skopiuj go do folderu programu jako wersję edytowalną.
+                    if path != TERRITORY_DATA_FILE:
+                        try:
+                            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+                            TERRITORY_DATA_FILE.write_text(
+                                path.read_text(encoding="utf-8"),
+                                encoding="utf-8",
+                            )
+                        except Exception:
+                            pass
+
+                    return data
+        except Exception as e:
+            print(f"[INFO] Błąd wczytania danych terytorialnych z {path}: {e}")
+
+    print("[INFO] Brak poprawnego pliku config/territory.json. Listy terytorialne będą puste.")
+    return {}
+
+
+TERRITORY_DATA = load_territory_data()
 
 
 # --- FUNKCJE POMOCNICZE ---
@@ -2865,7 +2522,16 @@ class ModernApp(ctk.CTk):
             row=1, column=0, padx=15, pady=8, sticky="e"
         )
         woj_list = sorted(TERRITORY_DATA.keys())
-        self.tpl_data[mode_key]["woj_var"] = ctk.StringVar(value="KUJAWSKO-POMORSKIE")
+        if not woj_list:
+            woj_list = ["BRAK DANYCH"]
+
+        default_woj = (
+            "KUJAWSKO-POMORSKIE"
+            if "KUJAWSKO-POMORSKIE" in TERRITORY_DATA
+            else woj_list[0]
+        )
+
+        self.tpl_data[mode_key]["woj_var"] = ctk.StringVar(value=default_woj)
         self.tpl_data[mode_key]["woj_menu"] = ctk.CTkOptionMenu(
             card,
             variable=self.tpl_data[mode_key]["woj_var"],
@@ -2881,8 +2547,17 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(card, text="Powiat:", font=font_label).grid(
             row=1, column=2, padx=15, pady=8, sticky="e"
         )
-        powiat_list = sorted(TERRITORY_DATA.get("KUJAWSKO-POMORSKIE", {}).keys())
-        self.tpl_data[mode_key]["powiat_var"] = ctk.StringVar(value="TUCHOLSKI")
+        powiat_list = sorted(TERRITORY_DATA.get(default_woj, {}).keys())
+        if not powiat_list:
+            powiat_list = ["BRAK DANYCH"]
+
+        default_powiat = (
+            "TUCHOLSKI"
+            if "TUCHOLSKI" in TERRITORY_DATA.get(default_woj, {})
+            else powiat_list[0]
+        )
+
+        self.tpl_data[mode_key]["powiat_var"] = ctk.StringVar(value=default_powiat)
         self.tpl_data[mode_key]["powiat_menu"] = ctk.CTkComboBox(
             card,
             variable=self.tpl_data[mode_key]["powiat_var"],
@@ -2898,10 +2573,12 @@ class ModernApp(ctk.CTk):
         ctk.CTkLabel(card, text="Gmina:", font=font_label).grid(
             row=2, column=0, padx=15, pady=8, sticky="e"
         )
-        gmina_list = TERRITORY_DATA.get("KUJAWSKO-POMORSKIE", {}).get(
-            "TUCHOLSKI", ["LUBIEWO"]
-        )
-        self.tpl_data[mode_key]["gmina_var"] = ctk.StringVar(value="LUBIEWO")
+        gmina_list = TERRITORY_DATA.get(default_woj, {}).get(default_powiat, [])
+        if not gmina_list:
+            gmina_list = ["BRAK DANYCH"]
+
+        default_gmina = "LUBIEWO" if "LUBIEWO" in gmina_list else gmina_list[0]
+        self.tpl_data[mode_key]["gmina_var"] = ctk.StringVar(value=default_gmina)
         self.tpl_data[mode_key]["gmina_menu"] = ctk.CTkComboBox(
             card,
             variable=self.tpl_data[mode_key]["gmina_var"],
