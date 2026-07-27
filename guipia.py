@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.7"
+CURRENT_VERSION = "v1.1.8"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1456,19 +1456,26 @@ class ModernApp(ctk.CTk):
         self.after(2000, lambda: self.check_github_update(manual=False))
 
     def check_pending_changelog(self):
-        changelog_file = Path(__file__).parent / "pending_changelog.json"
+        # Ustalamy właściwy folder, w którym leży plik .exe (lub plik .py w dev)
+        if getattr(sys, "frozen", False):
+            app_dir = Path(sys.executable).resolve().parent
+        else:
+            app_dir = Path(__file__).resolve().parent
+
+        changelog_file = app_dir / "pending_changelog.json"
+
         if changelog_file.exists():
             try:
                 data = json.loads(changelog_file.read_text(encoding="utf-8"))
                 version = data.get("version", CURRENT_VERSION)
                 changelog_text = data.get("changelog", "")
-                
-                # Wyświetl okienko
-                self.after(500, lambda: ChangelogWindow(self, version, changelog_text))
+
+                # Wyświetlamy okno po załadowaniu głównego GUI
+                self.after(600, lambda: ChangelogWindow(self, version, changelog_text))
             except Exception as e:
                 print(f"[INFO] Błąd odczytu pliku changelogu: {e}")
             finally:
-                # Usunięcie pliku po przeczytaniu, aby okno nie pojawiało się przy kolejnych uruchomieniach
+                # Czyszczenie pliku, aby okno nie wyskakiwało przy kolejnych uruchomieniach
                 try:
                     changelog_file.unlink(missing_ok=True)
                 except Exception:
@@ -4032,8 +4039,8 @@ $form.Add_Shown({{
     }}
     $label.Text = "Pobieranie nowej wersji. To może chwilę potrwać..."
     $form.Refresh()
-    $exePath = "{current_exe_path}"
-    $exeDir = [System.IO.Path]::GetDirectoryName($exePath)
+    $exePath = "{safe_exe_path}"
+    $targetDir = [System.IO.Path]::GetDirectoryName($exePath)
     $tempExe = "$env:TEMP\\Kombajn_Najnowszy.exe"
     $url = "{url}"
     try {{
@@ -4057,15 +4064,16 @@ $form.Add_Shown({{
         $label.Text = "Pobrano poprawnie. Podmiana plików..."
         $form.Refresh()
         Start-Sleep -Milliseconds 500
+        
+        # Podmiana pliku EXE
         Remove-Item -Path $exePath -Force -ErrorAction SilentlyContinue
         Move-Item -Path $tempExe -Destination $exePath -Force
         
-        # Zapisz plik z informacją o changelogu dla nowo uruchomionej aplikacji
+        # Zapisz plik changelogu w folderze docelowym EXE
+        $changelogFile = Join-Path $targetDir "pending_changelog.json"
         $b64Data = "{b64_changelog}"
         $jsonBytes = [System.Convert]::FromBase64String($b64Data)
-        $jsonText = [System.Text.Encoding]::UTF8.GetString($jsonBytes)
-        $changelogFile = Join-Path $exeDir "pending_changelog.json"
-        [System.IO.File]::WriteAllText($changelogFile, $jsonText, [System.Text.Encoding]::UTF8)
+        [System.IO.File]::WriteAllBytes($changelogFile, $jsonBytes)
 
         $label.Text = "Zakończono! Uruchamianie nowej wersji..."
         $label.ForeColor = [System.Drawing.Color]::LightGreen
@@ -4073,13 +4081,15 @@ $form.Add_Shown({{
         $progressBar.Value = 100
         $form.Refresh()
         Start-Sleep -Seconds 1
+        
         [System.Environment]::SetEnvironmentVariable('_MEIPASS2', $null, 'Process')
         [System.Environment]::SetEnvironmentVariable('_MEIPASS', $null, 'Process')
         [System.Environment]::SetEnvironmentVariable('TCL_LIBRARY', $null, 'Process')
         [System.Environment]::SetEnvironmentVariable('TK_LIBRARY', $null, 'Process')
+        
         Start-Process -FilePath $exePath -UseNewEnvironment
     }} catch {{
-        $label.Text = "Wystąpił błąd sieciowy podczas pobierania."
+        $label.Text = "Wystąpił błąd podczas aktualizacji."
         $label.ForeColor = [System.Drawing.Color]::Red
         $progressBar.Style = "Blocks"
         $form.Refresh()
