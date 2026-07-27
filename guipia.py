@@ -37,7 +37,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.1.9"
+CURRENT_VERSION = "v1.1.91"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -4013,7 +4013,10 @@ class ModernApp(ctk.CTk):
         try:
             self.log("[UPDATE] Przygotowywanie graficznego instalatora Windows...")
             self.update_status("Uruchamianie aktualizatora...", "#0078D7")
+
+            # --- DEFINICJE ZMIENNYCH (PRZED S-SKRYPTEM POWERSHELL) ---
             current_exe_path = Path(sys.executable).resolve()
+            safe_exe_path = str(current_exe_path).replace("\\", "\\\\")
             pid = os.getpid()
 
             # Przygotowanie danych do zapisania changelogu po aktualizacji
@@ -4021,8 +4024,8 @@ class ModernApp(ctk.CTk):
                 "version": new_version,
                 "changelog": changelog_text
             }, ensure_ascii=False)
-            
-            # Bezpieczne zakodowanie JSON do Base64, aby uniknąć problemów z cudzysłowami w PowerShellu
+
+            # Bezpieczne zakodowanie JSON do Base64
             import base64
             b64_changelog = base64.b64encode(changelog_data.encode("utf-8")).decode("utf-8")
 
