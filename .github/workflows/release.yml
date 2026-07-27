@@ -29,7 +29,7 @@ jobs:
 
     - name: Kompilacja kodu do pliku .exe
       run: |
-        pyinstaller --noconfirm --onefile --windowed --icon "kombajn.ico" --name "KombajnLesnyPRO" --add-data "STR_TYT.docx;." --add-data "STR_TYT_TYLKO-ISL-2.docx;." guipia.py
+        pyinstaller --noconfirm --onefile --windowed --icon "kombajn.ico" --name "KombajnLesnyPRO" --add-data "STR_TYT.docx;." --add-data "STR_TYT_TYLKO-ISL-2.docx;." --add-data "config;config" guipia.py
 
     - name: Publikacja wydania na GitHubie
       uses: softprops/action-gh-release@v2
