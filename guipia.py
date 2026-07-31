@@ -2,6 +2,7 @@ import os
 import re
 import time
 import json
+import pyautogui
 import threading
 import traceback
 import subprocess
@@ -42,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.3.2"
+CURRENT_VERSION = "v1.3.3"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
