@@ -10,3 +10,4 @@ CTkToolTip
 xlrd
 numpy
 openpyxl
+pyautogui
