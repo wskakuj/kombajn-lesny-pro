@@ -8199,11 +8199,34 @@ class ModernApp(ctk.CTk):
 
 if __name__ == "__main__":
     if "--word-worker" in sys.argv:
+        log_file_path = None
+        if "--log-file" in sys.argv:
+            l_idx = sys.argv.index("--log-file")
+            log_file_path = sys.argv[l_idx + 1]
+
+
+            class FileLogger:
+                def __init__(self, filename):
+                    self.filename = filename
+                    with open(self.filename, "w", encoding="utf-8") as f:
+                        f.write("")
+
+                def write(self, text):
+                    with open(self.filename, "a", encoding="utf-8") as f:
+                        f.write(str(text))
+
+                def flush(self):
+                    pass
+
+
+            sys.stdout = sys.stderr = FileLogger(log_file_path)
+
         try:
             idx = sys.argv.index("--word-worker")
             in_dir = sys.argv[idx + 1]
             out_dir = sys.argv[idx + 2]
             remove_names = "--remove-names" in sys.argv
+
             file_filter = []
             idx_scan = 0
             while idx_scan < len(sys.argv):
@@ -8212,30 +8235,25 @@ if __name__ == "__main__":
                     idx_scan += 2
                     continue
                 idx_scan += 1
+
             if not file_filter:
                 file_filter = ["Wszystkie"]
-            if "--log-file" in sys.argv:
-                l_idx = sys.argv.index("--log-file")
 
-
-                class FileLogger:
-                    def __init__(self, filename):
-                        self.filename = filename
-                        with open(self.filename, "w", encoding="utf-8") as f:
-                            f.write("")
-
-                    def write(self, text):
-                        with open(self.filename, "a", encoding="utf-8") as f:
-                            f.write(text)
-
-                    def flush(self):
-                        pass
-
-
-                sys.stdout = sys.stderr = FileLogger(sys.argv[l_idx + 1])
             run_word_worker(in_dir, out_dir, remove_names, file_filter)
-        except Exception:
+
+        except Exception as e:
+            # Wychwytujemy WSZYSTKIE błędy procesu w tle i zapisujemy je do logu!
+            import traceback
+
+            if log_file_path:
+                try:
+                    with open(log_file_path, "a", encoding="utf-8") as f:
+                        f.write(f"\n[BŁĄD KRYTYCZNY PROCESU WORD]: {e}\n")
+                        f.write(traceback.format_exc())
+                except:
+                    pass
             sys.exit(1)
+
         sys.exit(0)
 
     app = ModernApp()
