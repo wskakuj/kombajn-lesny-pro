@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.3.6"
+CURRENT_VERSION = "v1.3.7"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -470,14 +470,14 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
     for idx, target in enumerate(all_files):
         os.startfile(str(target))
 
-        # --- ZABEZPIECZENIE 3: Dłuższy czas na otworzenie pierwszego pliku ---
-        # Pierwszy plik ładuje Worda od zera (zimny start), co zajmuje najwięcej czasu.
+        # ZABEZPIECZENIE 1: Dłuższy czas na otworzenie pierwszego pliku
         if idx == 0:
-            time.sleep(8)  # 8 sekund na start Worda
+            time.sleep(8)
         else:
-            time.sleep(3.5)  # 3,5 sekundy dla kolejnych, otwierających się już błyskawicznie
+            time.sleep(3.5)
 
-        pyautogui.hotkey("ctrl", "a")
+        # ZABEZPIECZENIE 2: 'interval=0.15' zmusza skrypt do wyraźnego wciskania klawiszy
+        pyautogui.hotkey("ctrl", "a", interval=0.15)
         time.sleep(0.3)
         pyautogui.press("alt")
         time.sleep(0.3)
@@ -489,23 +489,19 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
         time.sleep(0.2)
         pyautogui.press("up")
         time.sleep(0.3)
-        pyautogui.write("Cascadia Code")
+        pyautogui.write("Courier New")
         time.sleep(0.2)
         pyautogui.press("enter")
         time.sleep(0.5)
 
-        # --- ZABEZPIECZENIE 1: Odznaczamy tekst strzałką w prawo ---
+        # Odznaczamy tekst strzałką w prawo
         pyautogui.press("right")
-        time.sleep(0.2)
+        time.sleep(0.3)
 
-        # --- ZABEZPIECZENIE 2: Twarde przytrzymanie CTRL do zapisu i zamknięcia ---
-        pyautogui.keyDown("ctrl")
-        time.sleep(0.1)
-        pyautogui.press("s")
-        time.sleep(0.5)
-        pyautogui.press("w")
-        time.sleep(0.1)
-        pyautogui.keyUp("ctrl")
+        # ZABEZPIECZENIE 3: Wyraźne, powolne skróty z przerwami na zapis dyskowy
+        pyautogui.hotkey("ctrl", "s", interval=0.2)
+        time.sleep(1.2)  # Dajemy dyskowi ponad sekundę na zapisanie pliku
+        pyautogui.hotkey("ctrl", "w", interval=0.2)
         time.sleep(0.8)
 
         print(f"  └─ Skorygowano wizualnie: {target.parent.name}/{target.name}")
@@ -516,7 +512,7 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
             word_app = win32com.client.GetActiveObject("Word.Application")
             word_app.Quit()
         except Exception:
-            pyautogui.hotkey("alt", "f4")
+            pyautogui.hotkey("alt", "f4", interval=0.2)
         print("  └─ Zakończono i zamknięto okno Microsoft Word.")
 
 
