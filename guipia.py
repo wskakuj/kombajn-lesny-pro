@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.3.3"
+CURRENT_VERSION = "v1.3.4"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
