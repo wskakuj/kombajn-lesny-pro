@@ -11,6 +11,8 @@ import shutil
 import pyodbc
 import urllib.request
 import webbrowser
+import struct       # <--- DODANE
+import datetime
 from pathlib import Path
 import customtkinter as ctk
 import tkinter as tk
@@ -25,7 +27,10 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 import fitz
 from pypdf import PdfWriter, PdfReader
 from PIL import Image, ImageDraw
-import pandas as pd  # <--- DODANA LINIJKA
+import pandas as pd
+import numpy as np
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter  # <--- DODANA LINIJKA
 
 # Próba importu CTkToolTip
 try:
@@ -37,7 +42,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.2.25"
+CURRENT_VERSION = "v1.3.0"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1136,6 +1141,379 @@ class ValidationWindow(ctk.CTkToplevel):
         self.cancel_event.set()
         self.destroy()
 
+# ==========================================
+# ROZLICZANIE POWIERZCHNI (XLS + VAL)
+# ==========================================
+
+def bezpieczna_liczba(val):
+    if pd.isna(val) or val == '' or val == 'nan':
+        return 0.0
+    s = str(val).replace(',', '.')
+    s = re.sub(r'\s+', '', s)
+    try:
+        return float(s)
+    except ValueError:
+        return 0.0
+
+
+def wczytaj_i_przetworz_wlascicieli(sciezka_do_pliku):
+    # DYNAMICZNE SZUKANIE NAGŁÓWKA
+    df_raw = pd.read_excel(sciezka_do_pliku, header=None, nrows=20)
+    header_row = 1
+    for i, row in df_raw.iterrows():
+        row_str = " ".join([str(val).lower() for val in row.values])
+        if 'numer działki' in row_str or 'numer dzialki' in row_str:
+            header_row = i
+            break
+
+    df = pd.read_excel(sciezka_do_pliku, header=header_row)
+    df = df.rename(columns={'Numer działki': 'nr_dz', 'Pow.\nklasouż.': 'Pow. klasouż.'})
+
+    kolumny_do_wypelnienia = ['nr_dz', 'J. rej.', 'Pow. działki', 'Właściciel']
+    istniejace_kolumny = [col for col in kolumny_do_wypelnienia if col in df.columns]
+
+    for col in istniejace_kolumny:
+        df[col] = df[col].astype(str).replace(r'^\s*$', np.nan, regex=True)
+        df[col] = df[col].replace('nan', np.nan)
+        df[col] = df[col].replace('-', np.nan)
+
+    if istniejace_kolumny:
+        df[istniejace_kolumny] = df[istniejace_kolumny].ffill()
+
+    if 'nr_dz' in df.columns:
+        df['nr_dz'] = df['nr_dz'].astype(str).str.strip()
+        df['nr_dz'] = df['nr_dz'].str.replace(r'\.0$', '', regex=True)
+
+    if 'J. rej.' in df.columns:
+        def extract_after_g(val):
+            v_str = str(val)
+            if 'G' in v_str:
+                return v_str.split('G')[-1]
+            return v_str
+        df['J. rej.'] = df['J. rej.'].apply(extract_after_g)
+
+    if 'Właściciel' in df.columns:
+        df['Właściciel'] = df['Właściciel'].astype(str).replace('\n', ' ', regex=True).fillna('Brak danych')
+
+    df_full = df[['nr_dz', 'J. rej.', 'Pow. działki']].drop_duplicates(
+        'nr_dz').copy() if 'nr_dz' in df.columns and 'Pow. działki' in df.columns else pd.DataFrame()
+    if not df_full.empty:
+        df_full['pow dz'] = df_full['Pow. działki'].apply(bezpieczna_liczba)
+
+    wiersze_po_rozbiciu = []
+    for _, row in df.iterrows():
+        klasy = str(row.get('Klasoużytek', '')).split('\n')
+        powierzchnie = str(row.get('Pow. klasouż.', '')).split('\n')
+        max_len = max(len(klasy), len(powierzchnie))
+        klasy += [''] * (max_len - len(klasy))
+        powierzchnie += [''] * (max_len - len(powierzchnie))
+        for k, p in zip(klasy, powierzchnie):
+            nowy_wiersz = row.copy()
+            nowy_wiersz['Klasoużytek'] = k
+            nowy_wiersz['Pow. klasouż.'] = p
+            wiersze_po_rozbiciu.append(nowy_wiersz)
+
+    df_exploded = pd.DataFrame(wiersze_po_rozbiciu)
+
+    for col in ['Pow. działki', 'Pow. klasouż.']:
+        if col in df_exploded.columns:
+            df_exploded[col] = df_exploded[col].apply(bezpieczna_liczba)
+
+    if 'Klasoużytek' in df_exploded.columns:
+        df_ls = df_exploded[df_exploded['Klasoużytek'].astype(str).str.contains('Ls', case=False, na=False)].copy()
+    else:
+        df_ls = pd.DataFrame(columns=df_exploded.columns)
+
+    if df_ls.empty:
+        wynik = pd.DataFrame(columns=['nr_dz', 'J. rej.', 'pow dz', 'pow ls', 'Właściciel'])
+        return wynik, df_full
+
+    wynik = df_ls.groupby(['nr_dz', 'J. rej.', 'Pow. działki', 'Właściciel'], as_index=False)['Pow. klasouż.'].sum()
+    wynik = wynik.rename(columns={'Pow. działki': 'pow dz', 'Pow. klasouż.': 'pow ls'})
+    wynik['pow dz'] = wynik['pow dz'].round(4)
+    wynik['pow ls'] = wynik['pow ls'].round(4)
+    wynik = wynik[['nr_dz', 'J. rej.', 'pow dz', 'pow ls', 'Właściciel']]
+    return wynik, df_full
+
+
+def wczytaj_i_przetworz_val(sciezka_do_pliku_val):
+    try:
+        with open(sciezka_do_pliku_val, 'r', encoding='cp1250') as file:
+            linie = file.readlines()
+    except Exception as e:
+        print(f"Błąd wczytywania VAL: {e}")
+        return None
+
+    dane_wyjsciowe = []
+    aktualny_nr_dz = None
+
+    for line in reversed(linie):
+        line = line.strip()
+        if not line or line.startswith(';'):
+            continue
+        elementy = line.split()
+        if not elementy:
+            continue
+        if elementy[0] == '*':
+            if len(elementy) >= 2:
+                aktualny_nr_dz = elementy[1]
+        elif elementy[0] == '^':
+            if len(elementy) >= 3:
+                oznaczenie = elementy[1]
+                if 'X' not in oznaczenie and re.search(r'[A-Za-z]', oznaczenie):
+                    litera = oznaczenie
+                    if aktualny_nr_dz:
+                        pow_sqm_str = elementy[2]
+                        try:
+                            pow_geo = float(pow_sqm_str.replace(',', '.')) / 10000.0
+                        except ValueError:
+                            continue
+                        if pow_geo >= 0.001:
+                            dane_wyjsciowe.append({
+                                'nr_dz': aktualny_nr_dz,
+                                'litera': litera,
+                                'pow geo': round(pow_geo, 4)
+                            })
+
+    dane_wyjsciowe.reverse()
+    df = pd.DataFrame(dane_wyjsciowe)
+    if df.empty:
+        return pd.DataFrame(columns=['nr_dz', 'litera', 'pow geo'])
+    df = df[['nr_dz', 'litera', 'pow geo']]
+    return df
+
+
+def polacz_xls_i_val(df_xls, df_full, df_val):
+    xls = df_xls.copy()
+    val = df_val.copy()
+
+    df_merged = pd.merge(val, xls, on='nr_dz', how='left')
+
+    mapping_j_rej = df_full.set_index('nr_dz')['J. rej.']
+    mapping_pow_dz = df_full.set_index('nr_dz')['pow dz']
+
+    df_merged['J. rej.'] = df_merged['J. rej.'].fillna(df_merged['nr_dz'].map(mapping_j_rej))
+    df_merged['pow dz'] = df_merged['pow dz'].fillna(df_merged['nr_dz'].map(mapping_pow_dz))
+
+    df_out = pd.DataFrame()
+    df_out['Kolumna_A'] = ""
+    df_out['J. rej.'] = df_merged['J. rej.']
+    df_out['nr_dz'] = df_merged['nr_dz']
+    df_out['litery'] = df_merged['litera']
+    df_out['pow geo'] = df_merged['pow geo']
+    df_out['TU POWSTANĄ DANE'] = np.nan
+    df_out['Kolumna_G'] = ""
+    df_out['nr_dz_ewid'] = df_merged['nr_dz']
+    df_out['pow ls'] = df_merged['pow ls']
+    df_out['pow dz'] = df_merged['pow dz']
+
+    nieotaksowane = xls[~xls['nr_dz'].isin(val['nr_dz'])].copy() if not xls.empty else pd.DataFrame(
+        columns=['J. rej.', 'nr_dz', 'Właściciel', 'pow ls', 'pow dz'])
+    if not nieotaksowane.empty:
+        nieotaksowane = nieotaksowane[['J. rej.', 'nr_dz', 'Właściciel', 'pow ls', 'pow dz']]
+        nieotaksowane = nieotaksowane.rename(columns={'Właściciel': 'właściciel'})
+
+    return df_out, nieotaksowane
+
+
+def wykonaj_makro_vba(df_out, df_braki):
+    df = df_out.copy()
+    df['bg_color'] = ""
+    df['font_color'] = ""
+    TOLERANCJA = 0.0010
+
+    # 1. WARTOŚCI (bez żadnych kolorów tła - te ustawiamy dopiero w pętli 4 i 3)
+    for dz, group in df.groupby('nr_dz', sort=False):
+        suma_geo = group['pow geo'].sum()
+        pow_ewid = group['pow ls'].iloc[0]
+        pow_docelowa = group['pow dz'].iloc[0]
+        is_new_forest = pd.isna(pow_ewid) or str(pow_ewid).strip() == ""
+        # czerwony TEKST = w kolumnie I (pow ls) nie ma wartości
+        df_font = 'FF0000' if is_new_forest else '000000'
+        nadmiar_sciezka = pd.notna(pow_ewid) and suma_geo > (float(pow_ewid) + 0.1)
+        suma_przepisanych = 0.0
+
+        for idx in group.index:
+            aktualna_pow = group.at[idx, 'pow geo']
+            df.at[idx, 'font_color'] = df_font
+
+            if is_new_forest:
+                # nowy las (brak ewidencji LS) -> pełna geodezja
+                df.at[idx, 'TU POWSTANĄ DANE'] = aktualna_pow
+                continue
+
+            if nadmiar_sciezka:
+                # suma geo > ewidencja LS  ->  NIE przeliczamy proporcjonalnie do LS,
+                # tylko bierzemy pełną geodezję, ograniczoną od góry przez pow dz.
+                # (dzieki temu dzialka "przybyla" trafia do PRZYBYLO z pelna wartoscia)
+                if pd.notna(pow_docelowa):
+                    reszta = float(pow_docelowa) - suma_przepisanych
+                    if reszta > 0:
+                        wartosc = min(reszta, aktualna_pow)
+                        df.at[idx, 'TU POWSTANĄ DANE'] = round(wartosc, 4)
+                        suma_przepisanych += wartosc
+                    else:
+                        # kontur nie zmiescil sie w pow dz (nadmiar ponad dzialke) -> 0
+                        df.at[idx, 'TU POWSTANĄ DANE'] = 0.0000
+                else:
+                    # brak pow dz (brak górnego limitu) -> pełna geodezja
+                    df.at[idx, 'TU POWSTANĄ DANE'] = aktualna_pow
+            else:
+                # suma geo <= ewidencja LS -> standardowe przeliczenie proporcjonalne
+                if pd.notna(pow_ewid) and suma_geo != 0:
+                    nowa = (aktualna_pow / suma_geo) * float(pow_ewid)
+                    zaokr = round(nowa, 4)
+                    df.at[idx, 'TU POWSTANĄ DANE'] = zaokr if zaokr != 0 else aktualna_pow
+                else:
+                    df.at[idx, 'TU POWSTANĄ DANE'] = aktualna_pow
+
+    # 2. DOCIĄGANIE RÓŻNIC ZAOKRĄGLEŃ (bez koloru)
+    for dz, group in df.groupby('nr_dz', sort=False):
+        pow_ewid = group['pow ls'].iloc[0]
+        pow_docelowa = group['pow dz'].iloc[0]
+        mask = df['nr_dz'] == dz
+        valid_indices = df[mask & df['TU POWSTANĄ DANE'].notna()].index
+        if len(valid_indices) == 0:
+            continue
+        suma_f = df.loc[valid_indices, 'TU POWSTANĄ DANE'].sum()
+        roznica = 0.0
+        if pd.notna(pow_docelowa) and str(pow_docelowa).strip() != "":
+            pow_j = float(pow_docelowa)
+            if suma_f > pow_j:
+                roznica = pow_j - suma_f
+            elif 0 < (pow_j - suma_f) <= TOLERANCJA:
+                roznica = pow_j - suma_f
+        if roznica == 0.0 and pd.notna(pow_ewid) and str(pow_ewid).strip() != "":
+            pow_i = float(pow_ewid)
+            if abs(pow_i - suma_f) > 0 and abs(pow_i - suma_f) <= TOLERANCJA:
+                roznica = pow_i - suma_f
+        if roznica != 0:
+            ostatni_wiersz = valid_indices[-1]
+            df.at[ostatni_wiersz, 'TU POWSTANĄ DANE'] = round(
+                df.at[ostatni_wiersz, 'TU POWSTANĄ DANE'] + roznica, 4)
+
+    # 3. SZUM -> RÓŻOWY (do weryfikacji) / usunięcie śmieci bez ewidencji
+    rows_to_drop = []
+    for idx in df.index:
+        val = df.at[idx, 'TU POWSTANĄ DANE']
+        pow_ewid = df.at[idx, 'pow ls']
+        if pd.notna(val) and val <= 0.004:
+            if pd.isna(pow_ewid) or str(pow_ewid).strip() == "":
+                rows_to_drop.append(idx)
+            else:
+                df.at[idx, 'bg_color'] = 'FFB6C1'
+    if rows_to_drop:
+        df = df.drop(index=rows_to_drop)
+
+    # 4. PRZYBYŁO / UBYŁO  +  ZIELONE TŁO dla działek, które "przybyły"
+    przybylo_data = []
+    ubylo_data = []
+    for dz, group in df.groupby('nr_dz', sort=False):
+        mask = df['nr_dz'] == dz
+        valid_indices = df[mask & df['TU POWSTANĄ DANE'].notna()].index
+        suma_f = df.loc[valid_indices, 'TU POWSTANĄ DANE'].sum() if len(valid_indices) > 0 else 0.0
+        pow_ewid = group['pow ls'].iloc[0]
+        pow_docelowa = group['pow dz'].iloc[0]
+        j_rej = group['J. rej.'].iloc[0] if 'J. rej.' in group.columns else ""
+        startowy_las = float(pow_ewid) if (pd.notna(pow_ewid) and str(pow_ewid).strip() != "") else 0.0
+        roznica = round(suma_f - startowy_las, 4)
+        if roznica > 0:
+            # ZIELONE TŁO = działka przybyła (różowego szumu nie nadpisujemy)
+            for idx in valid_indices:
+                if df.at[idx, 'bg_color'] != 'FFB6C1':
+                    df.at[idx, 'bg_color'] = '00FF00'
+            przybylo_data.append({
+                'J. rej.': j_rej, 'nr działki': dz,
+                'aktualna pow ls': round(suma_f, 4), 'ls ewidenca': startowy_las,
+                'ile przybyło': roznica,
+                'pow dz': pow_docelowa if pd.notna(pow_docelowa) else ""
+            })
+        elif roznica < 0:
+            ubylo_data.append({
+                'J. rej.': j_rej, 'nr działki': dz,
+                'aktualna pow ls': round(suma_f, 4), 'ls ewidenca': startowy_las,
+                'ile ubyło': roznica,
+                'pow dz': pow_docelowa if pd.notna(pow_docelowa) else ""
+            })
+
+    if not df_braki.empty:
+        for _, row in df_braki.iterrows():
+            if '[OP]' not in str(row.get('właściciel', '')):
+                pow_ewid = row.get('pow ls', np.nan)
+                pow_doc = row.get('pow dz', np.nan)
+                j_rej = row.get('J. rej.', "")
+                if pd.notna(pow_ewid) and float(pow_ewid) > 0:
+                    ubylo_data.append({
+                        'J. rej.': j_rej, 'nr działki': row.get('nr_dz', ''),
+                        'aktualna pow ls': 0.0, 'ls ewidenca': pow_ewid,
+                        'ile ubyło': -float(pow_ewid),
+                        'pow dz': pow_doc if pd.notna(pow_doc) else ""
+                    })
+
+    return df, pd.DataFrame(przybylo_data), pd.DataFrame(ubylo_data)
+
+
+def formatuj_arkusz_raportowy(worksheet, tytul, hex_kolor_tytulu):
+    worksheet['A1'] = tytul
+    worksheet.merge_cells('A1:F1')
+    worksheet['A1'].font = Font(size=18, bold=True, color=hex_kolor_tytulu)
+    worksheet['A1'].alignment = Alignment(horizontal='center', vertical='center')
+
+    thick_bottom = Border(bottom=Side(style='thick', color='000000'))
+    thin_border = Border(left=Side(style='thin', color='000000'),
+                         right=Side(style='thin', color='000000'),
+                         top=Side(style='thin', color='000000'),
+                         bottom=Side(style='thin', color='000000'))
+
+    max_row = worksheet.max_row
+    max_col = 6
+
+    for col in range(1, max_col + 1):
+        cell = worksheet.cell(row=2, column=col)
+        cell.font = Font(bold=True)
+        cell.border = thick_bottom
+
+    for row in range(3, max_row + 1):
+        for col in range(1, max_col + 1):
+            cell = worksheet.cell(row=row, column=col)
+            cell.border = thin_border
+            if col in [1, 2]:
+                cell.alignment = Alignment(horizontal='left')
+
+    for col in range(1, max_col + 1):
+        col_letter = get_column_letter(col)
+        max_length = 0
+        for row in range(2, max_row + 1):
+            cell = worksheet.cell(row=row, column=col)
+            try:
+                if len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        worksheet.column_dimensions[col_letter].width = (max_length + 2)
+
+# Struktura WSIE.DBF dokładnie wg specyfikacji MIETEK.EXE (kolejność krytyczna!)
+WSIE_FIELDS = [
+    ('NAZWA', 'C', 40, 0), ('WOJEW', 'C', 30, 0), ('GMINA', 'C', 30, 0),
+    ('STAN_NA', 'D', 8, 0), ('OBOW_OD', 'D', 8, 0), ('OBOW_DO', 'D', 8, 0),
+    ('NR_WSI', 'N', 3, 0), ('ROK_ZAL', 'C', 2, 0),
+    ('SPR', 'C', 75, 0), ('ZLC', 'C', 40, 0), ('WW', 'C', 20, 0), ('KR', 'C', 5, 0),
+    ('DZ1', 'C', 75, 0), ('DZ2', 'C', 75, 0),
+    ('ET1', 'N', 6, 0), ('ET2', 'N', 6, 0), ('ET3', 'N', 6, 0), ('ET4', 'N', 6, 0),
+    ('ET5', 'N', 6, 0), ('ET6', 'N', 6, 0), ('ET7', 'N', 6, 0),
+    ('OCHR2', 'C', 75, 0), ('OCHR3', 'C', 75, 0), ('OCHR4', 'C', 75, 0),
+    ('P_OCH', 'N', 12, 4),
+    ('ZDR', 'C', 75, 0), ('ZDR1', 'C', 75, 0), ('ZDR2', 'C', 75, 0),
+    ('ZG1', 'N', 12, 4), ('ZG2', 'N', 12, 4), ('ZG3', 'N', 12, 4),
+    ('PRZY', 'C', 75, 0), ('PRZY1', 'C', 75, 0), ('PRZY2', 'C', 75, 0),
+    ('SANITAR', 'C', 75, 0), ('SANITAR1', 'C', 75, 0), ('SANITAR2', 'C', 75, 0),
+    ('US1', 'C', 75, 0), ('US2', 'C', 75, 0), ('US3', 'C', 75, 0), ('US4', 'C', 75, 0),
+    ('EG1', 'C', 50, 0), ('EG2', 'C', 50, 0), ('EG3', 'C', 50, 0),
+    ('EG4', 'C', 50, 0), ('EG5', 'C', 50, 0),
+    ('POWIAT', 'C', 30, 0),
+]
+
+
 class ModernApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -1201,6 +1579,22 @@ class ModernApp(ctk.CTk):
         self.mdb_source_entry = None
         self.mdb_output_entry = None
         self.mdb_start_btn = None
+        self.rozl_xls_entry = None
+        self.rozl_val_entry = None
+        self.rozl_out_entry = None
+        self.rozl_start_btn = None
+
+        self.rozliczanie_tabview = None
+        self.mietki_base_entry = None
+        self.mietki_out_entry = None
+        self.mietki_names_textbox = None
+        self.mietki_start_btn = None
+
+        self.krzyz_xls_entry = None
+        self.krzyz_mietki_entry = None
+        self.krzyz_start_btn = None
+        self.halizny_mietki_entry = None
+        self.halizny_start_btn = None
 
         # Zmienne dla Pełny Automat - STR_TYT i SKROTY
         self.all_gen_str_tyt_var = None
@@ -1519,8 +1913,10 @@ class ModernApp(ctk.CTk):
         self.tabview.grid(row=1, column=0, sticky="nsew", padx=8, pady=8)
         category_mietek = self.tabview.add("MIETEK")
         category_taksator = self.tabview.add("TAKSATOR")
+        category_rozliczanie = self.tabview.add("ROZLICZANIE")
         category_pdfconv = self.tabview.add("Konwerter PDF")
-        for category_tab in (category_mietek, category_taksator, category_pdfconv):
+
+        for category_tab in (category_mietek, category_taksator, category_rozliczanie, category_pdfconv):
             category_tab.grid_rowconfigure(0, weight=1)
             category_tab.grid_columnconfigure(0, weight=1)
 
@@ -1650,7 +2046,17 @@ class ModernApp(ctk.CTk):
         self.setup_split_pdf_tab(tab_split_pdf)
         self.setup_mdb_update_tab(tab_mdb_update)
 
-        self.setup_pdf_converter_tab(category_pdfconv)
+        self.rozliczanie_tabview = ctk.CTkTabview(category_rozliczanie, corner_radius=6, command=self.on_subtab_change)
+        self.rozliczanie_tabview.grid(row=0, column=0, padx=8, pady=8, sticky="nsew")
+
+        tab_rozl_main = self.rozliczanie_tabview.add("Rozliczanie powierzchni")
+        tab_tworzenie_mietkow = self.rozliczanie_tabview.add("Tworzenie Mietków")
+        tab_krzyzowki = self.rozliczanie_tabview.add("Wpisanie krzyżówek")
+        tab_halizny = self.rozliczanie_tabview.add("Halizny")
+        self.setup_rozliczanie_tab(tab_rozl_main)
+        self.setup_tworzenie_mietkow_tab(tab_tworzenie_mietkow)
+        self.setup_krzyzowki_tab(tab_krzyzowki)
+        self.setup_halizny_tab(tab_halizny)
 
         self.options_frame = ctk.CTkFrame(self.top_panel, fg_color="transparent")
         self.options_frame.grid(row=2, column=0, pady=(5, 5), sticky="w")
@@ -2002,6 +2408,357 @@ class ModernApp(ctk.CTk):
             self.stream_listbox.delete(0, tk.END)
 
     # =================================
+
+    def setup_rozliczanie_tab(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+        font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        font_btn = ctk.CTkFont(family="Segoe UI", size=13)
+        card = ctk.CTkFrame(
+            scroll_frame, fg_color="#252526", corner_radius=8,
+            border_width=1, border_color="#333333",
+        )
+        card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
+        card.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(card, text="Folder z plikami XLS:", font=font_label, text_color="#E0E0E0").grid(
+            row=0, column=0, padx=15, pady=(15, 8), sticky="w")
+        self.rozl_xls_entry = ctk.CTkEntry(
+            card, placeholder_text="Wskaż folder z ewidencją (.xls/.xlsx)", height=36)
+        self.rozl_xls_entry.grid(row=0, column=1, padx=5, pady=(15, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.rozl_xls_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=0, column=2, padx=15, pady=(15, 8))
+
+        ctk.CTkLabel(card, text="Folder z plikami VAL:", font=font_label, text_color="#E0E0E0").grid(
+            row=1, column=0, padx=15, pady=8, sticky="w")
+        self.rozl_val_entry = ctk.CTkEntry(
+            card, placeholder_text="Wskaż folder z plikami z geodezji (.val)", height=36)
+        self.rozl_val_entry.grid(row=1, column=1, padx=5, pady=8, sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.rozl_val_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=1, column=2, padx=15, pady=8)
+
+        ctk.CTkLabel(card, text="Folder docelowy:", font=font_label, text_color="#E0E0E0").grid(
+            row=2, column=0, padx=15, pady=(8, 15), sticky="w")
+        self.rozl_out_entry = ctk.CTkEntry(
+            card, placeholder_text="Gdzie zapisać rozliczone tabele?", height=36)
+        self.rozl_out_entry.grid(row=2, column=1, padx=5, pady=(8, 15), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.rozl_out_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=2, column=2, padx=15, pady=(8, 15))
+
+        ctk.CTkLabel(
+            card,
+            text="Dopasowanie: nazwa pliku XLS → plik *.val o tej samej nazwie (ignorując spacje i _ )",
+            font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#888888",
+        ).grid(row=3, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+
+        self.rozl_start_btn = ctk.CTkButton(
+            scroll_frame, text="Uruchom rozliczanie obrębów", image=self.icon_start,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#0067C0", hover_color="#005A9E", height=44, corner_radius=6,
+            command=self.start_rozliczanie_pipeline,
+        )
+        self.rozl_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+        add_tooltip(
+            self.rozl_start_btn,
+            "Łączy ewidencję XLS z plikami VAL geodezji, przelicza powierzchnie "
+            "i zapisuje raporty z arkuszami: Tabela_Glowna, Nieotaksowane, PRZYBYLO, UBYLO.",
+        )
+
+        # ==========================================
+        # LEGENDA KOLORÓW  (Tabela_Glowna, kolumna F)
+        # ==========================================
+        legend_card = ctk.CTkFrame(
+            scroll_frame, fg_color="#252526", corner_radius=8,
+            border_width=1, border_color="#333333",
+        )
+        legend_card.grid(row=2, column=0, padx=20, pady=(0, 20), sticky="new")
+        legend_card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            legend_card, text="Legenda kolorów",
+            font=ctk.CTkFont(family="Segoe UI", size=14, weight="bold"),
+            text_color="#E0E0E0",
+        ).grid(row=0, column=0, padx=15, pady=(14, 2), sticky="w")
+        ctk.CTkLabel(
+            legend_card,
+            text="Kolory opisują, w jaki sposób została wyliczona powierzchnia w danej komórce. Najedź kursorem na wiersz.",
+            font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#888888",
+        ).grid(row=1, column=0, padx=15, pady=(0, 10), sticky="w")
+
+        # --- dane legendy: (hex, nazwa, opis, rodzaj) ; rodzaj = "fill" albo "font" ---
+        fill_rows = [
+            ("00FF00", "ZIELONY",
+             "Działka „przybyła” (suma w kolumnie F > ewidencja LS z kolumny I) — podświetlone wszystkie jej wiersze z wartością."),
+            ("FFB6C1", "RÓŻOWY",
+             "Pomijalny „szum” (≤ 0,004 ha) przy istniejącej ewidencji LS — do sprawdzenia, czy wywalić."),
+            ("FFFFFF", "BRAK WYPEŁNIENIA",
+             "Wiersz rozliczony standardowo (działka ani nie przybyła, ani nie jest szumem)."),
+        ]
+        font_rows = [
+            ("FF0000", "CZERWONY TEKST",
+             "W kolumnie I (ewidencja LS) NIE MA wartości — liczba w F pochodzi tylko z geomapy (sprawdź ręcznie)."),
+        ]
+
+        ROW_BG, ROW_HOVER = "#202022", "#2E2E31"
+
+        def _legend_row(parent, r, hex_color, title, desc, kind):
+            row_frame = ctk.CTkFrame(
+                parent, fg_color=ROW_BG, corner_radius=6,
+                border_width=1, border_color="#2C2C2E",
+            )
+            row_frame.grid(row=r, column=0, padx=12, pady=3, sticky="ew")
+            row_frame.grid_columnconfigure(2, weight=1)
+
+            if kind == "fill":
+                swatch = ctk.CTkFrame(
+                    row_frame, width=30, height=18, corner_radius=3,
+                    fg_color=f"#{hex_color}", border_width=1, border_color="#5A5A5A",
+                )
+                swatch.grid(row=0, column=0, padx=(10, 10), pady=8, sticky="w")
+                swatch.grid_propagate(False)
+            else:
+                swatch = ctk.CTkLabel(
+                    row_frame, text="Aa", width=30,
+                    font=ctk.CTkFont(family="Consolas", size=13, weight="bold"),
+                    text_color=f"#{hex_color}", fg_color="transparent",
+                )
+                swatch.grid(row=0, column=0, padx=(10, 10), pady=8, sticky="w")
+
+            ctk.CTkLabel(
+                row_frame, text=title,
+                font=ctk.CTkFont(family="Segoe UI", size=12, weight="bold"),
+                text_color="#F0F0F0", width=150, anchor="w", fg_color="transparent",
+            ).grid(row=0, column=1, padx=(0, 8), pady=8, sticky="w")
+            ctk.CTkLabel(
+                row_frame, text=desc,
+                font=ctk.CTkFont(family="Segoe UI", size=11),
+                text_color="#B8B8B8", anchor="w", wraplength=520, justify="left",
+                fg_color="transparent",
+            ).grid(row=0, column=2, padx=(0, 10), pady=8, sticky="w")
+
+            # mikrointerakcja: cały wiersz rozjaśnia się pod kursorem
+            def _bind_hover(widget):
+                widget.bind("<Enter>", lambda e: row_frame.configure(fg_color=ROW_HOVER))
+                widget.bind("<Leave>", lambda e: row_frame.configure(fg_color=ROW_BG))
+                for child in widget.winfo_children():
+                    _bind_hover(child)
+
+            _bind_hover(row_frame)
+
+        # --- nagłówek + wiersze sekcji WYPEŁNIENIE ---
+        ctk.CTkLabel(
+            legend_card, text="▮  WYPEŁNIENIE KOMÓRKI (tło)",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#0078D7",
+        ).grid(row=2, column=0, padx=15, pady=(4, 2), sticky="w")
+        row_idx = 3
+        for hex_color, title, desc in fill_rows:
+            _legend_row(legend_card, row_idx, hex_color, title, desc, "fill")
+            row_idx += 1
+
+        # --- nagłówek + wiersze sekcji KOLOR TEKSTU ---
+        ctk.CTkLabel(
+            legend_card, text="A  KOLOR TEKSTU (czcionka)",
+            font=ctk.CTkFont(family="Segoe UI", size=11, weight="bold"),
+            text_color="#E0A020",
+        ).grid(row=row_idx, column=0, padx=15, pady=(10, 2), sticky="w")
+        row_idx += 1
+        for hex_color, title, desc in font_rows:
+            _legend_row(legend_card, row_idx, hex_color, title, desc, "font")
+            row_idx += 1
+
+        ctk.CTkLabel(
+            legend_card,
+            text="Podpowiedź: czerwone i szare komórki warto przejrzeć ręcznie przed wstrzyknięciem krzyżówek.",
+            font=ctk.CTkFont(family="Segoe UI", size=11), text_color="#888888",
+        ).grid(row=row_idx, column=0, padx=15, pady=(10, 14), sticky="w")
+
+    def start_rozliczanie_pipeline(self):
+        folder_xls = self.rozl_xls_entry.get().strip() if self.rozl_xls_entry else ""
+        folder_val = self.rozl_val_entry.get().strip() if self.rozl_val_entry else ""
+        folder_out = self.rozl_out_entry.get().strip() if self.rozl_out_entry else ""
+
+        if not folder_xls or not Path(folder_xls).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder z plikami XLS.")
+            return
+        if not folder_val or not Path(folder_val).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder z plikami VAL.")
+            return
+        if not folder_out:
+            messagebox.showwarning("Błąd", "Wybierz folder docelowy dla raportów.")
+            return
+        if self.running:
+            return
+
+        self.last_output_dir = Path(folder_out)
+        self._disable_ui_for_process()
+        self.log(f"[ROZLICZANIE] URUCHOMIENIE PROCEDURY\nXLS: {folder_xls}\nVAL: {folder_val}")
+        self.set_progress(0)
+        threading.Thread(
+            target=self.run_rozliczanie_thread,
+            args=(folder_xls, folder_val, folder_out),
+            daemon=True,
+        ).start()
+
+    def run_rozliczanie_thread(self, folder_xls_str, folder_val_str, folder_out_str):
+        try:
+            folder_xls = Path(folder_xls_str)
+            folder_val = Path(folder_val_str)
+            folder_out = Path(folder_out_str)
+            folder_out.mkdir(parents=True, exist_ok=True)
+
+            xls_files = sorted(
+                [
+                    p for p in folder_xls.iterdir()
+                    if p.is_file()
+                       and p.suffix.lower() in {".xls", ".xlsx"}
+                       and not p.name.startswith("~$")
+                ]
+            )
+            if not xls_files:
+                raise Exception("Brak plików XLS/XLSX we wskazanym folderze.")
+
+            total = len(xls_files)
+            self.start_progress_tracking(total, "Rozliczanie obrębów")
+            self.update_status("Rozliczanie powierzchni obrębów...", "#0078D7")
+
+            stat_sukces = 0
+            stat_brak_val = []
+            stat_bledy = []
+
+            for idx, sciezka_xls in enumerate(xls_files, start=1):
+                self.check_stop()
+                nazwa_wsi = sciezka_xls.stem
+                self.log(f"[ROZLICZANIE] ▸ Przetwarzanie obrębu: {nazwa_wsi}")
+
+                # PRECYZYJNE DOPASOWANIE VAL (zapobiega pomyleniu "LIS" z "LISIE_POLE")
+                nazwa_wsi_czysta = re.sub(r"[\s_]", "", nazwa_wsi.lower())
+                pasujace_val = []
+                for f in folder_val.iterdir():
+                    if f.is_file() and f.suffix.lower() == ".val":
+                        f_czysta = re.sub(r"[\s_]", "", f.name.lower())
+                        if f_czysta.endswith(nazwa_wsi_czysta + ".val"):
+                            pasujace_val.append(f)
+
+                if not pasujace_val:
+                    self.log(f"  ⚠️ Pominięto '{nazwa_wsi}' — brak pasującego pliku .val")
+                    stat_brak_val.append(nazwa_wsi)
+                    self.set_progress(idx / total, current_file=sciezka_xls.name, current=idx)
+                    continue
+
+                sciezka_val = pasujace_val[0]
+                plik_wyjsciowy = folder_out / f"{nazwa_wsi}_Rozliczone.xlsx"
+
+                try:
+                    tabela_xls, df_full = wczytaj_i_przetworz_wlascicieli(str(sciezka_xls))
+                    tabela_val = wczytaj_i_przetworz_val(str(sciezka_val))
+
+                    if tabela_val is None:
+                        raise Exception(f"Nie udało się wczytać pliku VAL: {sciezka_val.name}")
+
+                    tabela_glowna, tabela_braki = polacz_xls_i_val(tabela_xls, df_full, tabela_val)
+                    tabela_gotowa, tabela_przybylo, tabela_ubylo = wykonaj_makro_vba(
+                        tabela_glowna, tabela_braki)
+
+                    with pd.ExcelWriter(str(plik_wyjsciowy), engine="openpyxl") as writer:
+                        kolumny_wyjsciowe = [
+                            c for c in tabela_gotowa.columns
+                            if c not in ("bg_color", "font_color")
+                        ]
+                        tabela_gotowa[kolumny_wyjsciowe].to_excel(
+                            writer, sheet_name="Tabela_Glowna", index=False)
+
+                        if not tabela_braki.empty:
+                            tabela_braki_eksport = tabela_braki[
+                                ["J. rej.", "nr_dz", "pow ls", "pow dz", "właściciel"]]
+                            tabela_braki_eksport.to_excel(
+                                writer, sheet_name="Nieotaksowane", index=False)
+                        else:
+                            pd.DataFrame(
+                                columns=["J. rej.", "nr_dz", "pow ls", "pow dz", "właściciel"]
+                            ).to_excel(writer, sheet_name="Nieotaksowane", index=False)
+
+                        if not tabela_przybylo.empty:
+                            tabela_przybylo.to_excel(
+                                writer, sheet_name="PRZYBYLO", index=False, startrow=1)
+                        if not tabela_ubylo.empty:
+                            tabela_ubylo.to_excel(
+                                writer, sheet_name="UBYLO", index=False, startrow=1)
+
+                        # Kolorowanie kolumny "TU POWSTANĄ DANE" (kolumna 6)
+                        worksheet_glowna = writer.sheets["Tabela_Glowna"]
+                        for row_idx, row in enumerate(tabela_gotowa.itertuples(), start=2):
+                            bg_col = getattr(row, "bg_color", "")
+                            f_col = getattr(row, "font_color", "")
+                            cell = worksheet_glowna.cell(row=row_idx, column=6)
+                            if pd.notna(bg_col) and bg_col != "":
+                                cell.fill = PatternFill(
+                                    start_color=str(bg_col), end_color=str(bg_col),
+                                    fill_type="solid")
+                            if pd.notna(f_col) and f_col != "":
+                                cell.font = Font(color=str(f_col))
+
+                        if "PRZYBYLO" in writer.sheets:
+                            formatuj_arkusz_raportowy(
+                                writer.sheets["PRZYBYLO"], "PRZYBYŁO", "FF0000")
+                        if "UBYLO" in writer.sheets:
+                            formatuj_arkusz_raportowy(
+                                writer.sheets["UBYLO"], "UBYŁO", "87CEEB")
+
+                    self.log(f"  ✅ Zapisano: {plik_wyjsciowy.name}")
+                    stat_sukces += 1
+
+                except PermissionError:
+                    self.log(
+                        f"  ❌ BŁĄD UPRAWNIEŃ: nie można zapisać '{nazwa_wsi}_Rozliczone.xlsx' "
+                        f"— zamknij plik w Excelu i spróbuj ponownie.")
+                    stat_bledy.append(nazwa_wsi)
+                except Exception as e:
+                    self.log(f"  ❌ Błąd przy obrębie '{nazwa_wsi}': {e}")
+                    stat_bledy.append(nazwa_wsi)
+
+                self.set_progress(idx / total, current_file=sciezka_xls.name, current=idx)
+
+            # --- RAPORT KOŃCOWY ---
+            self.log("\n" + "=" * 55)
+            self.log("PODSUMOWANIE ROZLICZANIA OBRĘBÓW")
+            self.log(f"✅ Przetworzono poprawnie: {stat_sukces}")
+            if stat_brak_val:
+                self.log(f"⚠️ Pominięto (brak VAL): {len(stat_brak_val)} -> {', '.join(stat_brak_val)}")
+            if stat_bledy:
+                self.log(f"❌ Zakończone błędem: {len(stat_bledy)} -> {', '.join(stat_bledy)}")
+            self.log("=" * 55)
+
+            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
+            podsumowanie = (
+                f"Rozliczanie obrębów zakończone.\n\n"
+                f"✅ Przetworzono poprawnie: {stat_sukces}\n"
+                f"⚠️ Pominięto (brak pliku VAL): {len(stat_brak_val)}\n"
+                f"❌ Zakończone błędem: {len(stat_bledy)}"
+            )
+            self.after(0, lambda: messagebox.showinfo("Rozliczanie obrębów", podsumowanie))
+
+        except InterruptedError:
+            self.update_status("Przerwano", "#D83B01", animate=False)
+            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+        except Exception as e:
+            self.log(traceback.format_exc())
+            self.update_status("Błąd", "#D83B01", animate=False)
+        finally:
+            self.running = False
+            self.after(0, self.restore_all_buttons)
 
     # NOWA METODA: Konfiguracja UI dla Pełny Automat (STR_TYT + SKROTY)
     def _setup_all_extras(self, card_frame, row_idx):
@@ -4332,6 +5089,22 @@ class ModernApp(ctk.CTk):
             self.mdb_start_btn.configure(
                 state="disabled", text="Przetwarzanie...", fg_color="#444444"
             )
+        if self.rozl_start_btn is not None:
+            self.rozl_start_btn.configure(
+                state="disabled", text="Przetwarzanie...", fg_color="#444444"
+            )
+        if self.mietki_start_btn is not None:
+            self.mietki_start_btn.configure(
+                state="disabled", text="Przetwarzanie...", fg_color="#444444"
+            )
+        if self.krzyz_start_btn is not None:
+            self.krzyz_start_btn.configure(
+                state="disabled", text="Przetwarzanie...", fg_color="#444444"
+            )
+        if self.halizny_start_btn is not None:
+            self.halizny_start_btn.configure(
+                state="disabled", text="Przetwarzanie...", fg_color="#444444"
+            )
         for mode in self.tpl_data:
             if "btn_gen" in self.tpl_data[mode]:
                 self.tpl_data[mode]["btn_gen"].configure(
@@ -5854,6 +6627,22 @@ class ModernApp(ctk.CTk):
             self.mdb_start_btn.configure(
                 state="normal", text="Usuń 0 w bazach (MDB)", fg_color="#0067C0"
             )
+        if self.rozl_start_btn is not None:
+            self.rozl_start_btn.configure(
+                state="normal", text="Uruchom rozliczanie obrębów", fg_color="#0067C0"
+            )
+        if self.mietki_start_btn is not None:
+            self.mietki_start_btn.configure(
+                state="normal", text="Klonuj strukturę folderów", fg_color="#0067C0"
+            )
+        if self.krzyz_start_btn is not None:
+            self.krzyz_start_btn.configure(
+                state="normal", text="Wstrzyknij krzyżówki do DBF", fg_color="#0067C0"
+            )
+        if self.halizny_start_btn is not None:
+            self.halizny_start_btn.configure(
+                state="normal", text="Przenieś halizny w D*.DBF", fg_color="#0067C0"
+            )
         for mode in self.tpl_data:
             if "btn_gen" in self.tpl_data[mode]:
                 self.tpl_data[mode]["btn_gen"].configure(
@@ -5875,6 +6664,978 @@ class ModernApp(ctk.CTk):
         if self.stream_frame:
             self.after(3000, lambda: self.stream_frame.grid_remove())
             self.clear_stream()
+
+    # ==========================================
+    # ZAKŁADKA: TWORZENIE MIETKÓW
+    # ==========================================
+    def setup_tworzenie_mietkow_tab(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+
+        font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        font_btn = ctk.CTkFont(family="Segoe UI", size=13)
+
+        card = ctk.CTkFrame(scroll_frame, fg_color="#252526", corner_radius=8, border_width=1, border_color="#333333")
+        card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
+        card.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(card, text="1. Folder Główny XLS (Ewidencja):", font=font_label, text_color="#E0E0E0").grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
+        self.mietki_bazowy_entry = ctk.CTkEntry(card, placeholder_text="Stąd program pobierze nazwy wsi i właścicieli...", height=36)
+        self.mietki_bazowy_entry.grid(row=0, column=1, padx=5, pady=(15, 8), sticky="ew")
+        ctk.CTkButton(card, text="Przeglądaj", image=self.icon_folder, command=lambda: self.select_dir(self.mietki_bazowy_entry), width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444").grid(row=0, column=2, padx=15, pady=(15, 8))
+
+        ctk.CTkLabel(card, text="2. Folder XLSX (Rozliczone):", font=font_label, text_color="#E0E0E0").grid(row=1, column=0, padx=15, pady=8, sticky="w")
+        self.mietki_rozlicz_entry = ctk.CTkEntry(card, placeholder_text="Stąd program pobierze numery J.rej...", height=36)
+        self.mietki_rozlicz_entry.grid(row=1, column=1, padx=5, pady=8, sticky="ew")
+        ctk.CTkButton(card, text="Przeglądaj", image=self.icon_folder, command=lambda: self.select_dir(self.mietki_rozlicz_entry), width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444").grid(row=1, column=2, padx=15, pady=8)
+
+        ctk.CTkLabel(card, text="3. Folder docelowy zapisu:", font=font_label, text_color="#E0E0E0").grid(row=2, column=0, padx=15, pady=(8, 15), sticky="w")
+        self.mietki_out_entry = ctk.CTkEntry(card, placeholder_text="Gdzie zapisać gotowe struktury MS-DOS z bazą DBF?", height=36)
+        self.mietki_out_entry.grid(row=2, column=1, padx=5, pady=(8, 15), sticky="ew")
+        ctk.CTkButton(card, text="Przeglądaj", image=self.icon_folder, command=lambda: self.select_dir(self.mietki_out_entry), width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444").grid(row=2, column=2, padx=15, pady=(8, 15))
+
+        # --- POLA NAGŁÓWKA WSIE.DBF ---
+        wsie_frame = ctk.CTkFrame(card, fg_color="#1E1E1E", border_width=1, border_color="#333333")
+        wsie_frame.grid(row=3, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="ew")
+        wsie_frame.grid_columnconfigure(1, weight=1)
+        wsie_frame.grid_columnconfigure(3, weight=1)
+        ctk.CTkLabel(wsie_frame, text="Dane nagłówka WSIE.DBF (stałe dla całego uruchomienia):",
+                     font=font_label, text_color="#A0A0A0").grid(row=0, column=0, columnspan=4, padx=10, pady=(8, 6), sticky="w")
+
+        def _wsie_row(r, c_label, c_entry, label, default, placeholder):
+            ctk.CTkLabel(wsie_frame, text=label, font=font_btn, text_color="#E0E0E0").grid(row=r, column=c_label, padx=(10, 6), pady=4, sticky="e")
+            e = ctk.CTkEntry(wsie_frame, height=30, placeholder_text=placeholder)
+            if default:
+                e.insert(0, default)
+            e.grid(row=r, column=c_entry, padx=(0, 12), pady=4, sticky="ew")
+            return e
+
+        self.wsie_wojew_entry  = _wsie_row(1, 0, 1, "Województwo (kod):", "10",          "np. 10")
+        self.wsie_powiat_entry = _wsie_row(1, 2, 3, "Powiat:",            "",            "np. WYSZKOWSKI")
+        self.wsie_stan_entry   = _wsie_row(2, 0, 1, "Stan na:",           "01.01.2023",  "DD.MM.RRRR")
+        self.wsie_obod_entry   = _wsie_row(2, 2, 3, "Obowiązuje od:",     "01.01.2023",  "DD.MM.RRRR")
+        self.wsie_obdo_entry   = _wsie_row(3, 0, 1, "Obowiązuje do:",     "31.12.2032",  "DD.MM.RRRR")
+        self.wsie_nrws_entry   = _wsie_row(3, 2, 3, "Nr wsi:",            "1",           "np. 1")
+        self.wsie_rokz_entry   = _wsie_row(4, 0, 1, "Rok zal.:",          "19",          "np. 19")
+        ctk.CTkLabel(wsie_frame, text="(NAZWA i GMINA = nazwa obrębu, wpisywane automatycznie)",
+                     font=ctk.CTkFont(size=11), text_color="#777777").grid(row=4, column=2, columnspan=2, padx=(0, 12), pady=4, sticky="w")
+
+        self.mietki_start_btn = ctk.CTkButton(
+            scroll_frame, text="Generuj struktury i wstrzyknij bazy DBF", image=self.icon_start,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#0067C0", hover_color="#005A9E", height=44, corner_radius=6,
+            command=self.start_tworzenie_mietkow_pipeline
+        )
+        self.mietki_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+
+    # ==========================================
+    # ZAKŁADKA: WPISANIE KRZYŻÓWEK (XLSX -> D*.DBF)
+    # ==========================================
+    def setup_krzyzowki_tab(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+        font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        font_btn = ctk.CTkFont(family="Segoe UI", size=13)
+        card = ctk.CTkFrame(
+            scroll_frame, fg_color="#252526", corner_radius=8,
+            border_width=1, border_color="#333333",
+        )
+        card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
+        card.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            card, text="1. Folder z poprawionymi XLSX (rozliczonymi):",
+            font=font_label, text_color="#E0E0E0",
+        ).grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
+        self.krzyz_xls_entry = ctk.CTkEntry(
+            card, placeholder_text="Wskaż folder z ręcznie zredagowanymi plikami *_Rozliczone.xlsx...",
+            height=36,
+        )
+        self.krzyz_xls_entry.grid(row=0, column=1, padx=5, pady=(15, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.krzyz_xls_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=0, column=2, padx=15, pady=(15, 8))
+
+        ctk.CTkLabel(
+            card, text="2. Folder z utworzonymi Mietkami:",
+            font=font_label, text_color="#E0E0E0",
+        ).grid(row=1, column=0, padx=15, pady=(8, 8), sticky="w")
+        self.krzyz_mietki_entry = ctk.CTkEntry(
+            card, placeholder_text="Gdzie leżą foldery obrębów (np. BIAŁCZ\\WOL.001)?",
+            height=36,
+        )
+        self.krzyz_mietki_entry.grid(row=1, column=1, padx=5, pady=(8, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.krzyz_mietki_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=1, column=2, padx=15, pady=(8, 8))
+
+        ctk.CTkLabel(
+            card,
+            text="Do D*.DBF trafią: J. rej. -> NRREJ, nr_dz -> NR_DZIAL, kolumna F -> POW i POW_L_ZAL, "
+                 "cyfry z 'litery' -> ODDZIAL, litery z 'litery' -> PODODDZ.",
+            font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#888888",
+        ).grid(row=2, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+
+        self.krzyz_start_btn = ctk.CTkButton(
+            scroll_frame, text="Wstrzyknij krzyżówki do DBF", image=self.icon_start,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#0067C0", hover_color="#005A9E", height=44, corner_radius=6,
+            command=self.start_krzyzowki_pipeline,
+        )
+        self.krzyz_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+
+    def start_krzyzowki_pipeline(self):
+        xls_dir = self.krzyz_xls_entry.get().strip() if self.krzyz_xls_entry else ""
+        mietki_dir = self.krzyz_mietki_entry.get().strip() if self.krzyz_mietki_entry else ""
+        if not xls_dir or not Path(xls_dir).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder z poprawionymi plikami XLSX.")
+            return
+        if not mietki_dir or not Path(mietki_dir).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder z utworzonymi Mietkami.")
+            return
+        if self.running:
+            return
+        self.last_output_dir = Path(mietki_dir)
+        self._disable_ui_for_process()
+        self.log(f"[KRZYŻÓWKI] URUCHOMIENIE\nXLSX: {xls_dir}\nMIETKI: {mietki_dir}")
+        self.set_progress(0)
+        threading.Thread(
+            target=self.run_krzyzowki_thread, args=(xls_dir, mietki_dir), daemon=True,
+        ).start()
+
+    def run_krzyzowki_thread(self, xls_dir_str, mietki_dir_str):
+        try:
+            self.update_status("Wstrzykiwanie krzyżówek do plików D*.DBF...", "#0078D7")
+            xls_dir = Path(xls_dir_str)
+            mietki_dir = Path(mietki_dir_str)
+            xls_files = sorted([
+                f for f in xls_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in {".xls", ".xlsx"} and not f.name.startswith("~$")
+            ])
+            if not xls_files:
+                raise Exception("Brak plików Excel we wskazanym folderze.")
+
+            total = len(xls_files)
+            self.start_progress_tracking(total, "Wpisywanie krzyżówek")
+
+            # Struktura D*.DBF wg MIETEK.EXE — NRREJ MUSI być pierwsze, inaczej program nie ruszy!
+            dbf_fields = [
+                ('NRREJ', 'N', 5, 0),  # J. rej.  (kolumna B w XLSX)
+                ('NR_DZIAL', 'C', 9, 0),  # nr_dz
+                ('POW', 'N', 9, 4),  # kolumna F
+                ('POW_L_ZAL', 'N', 9, 4),  # kolumna F
+                ('POW_L_NZAL', 'N', 8, 4),  # puste
+                ('POW_N_ZAL', 'N', 9, 4),  # puste
+                ('POW_INNE', 'N', 8, 4),  # puste
+                ('ODDZIAL', 'C', 7, 0),  # cyfry z 'litery'
+                ('PODODDZ', 'C', 3, 0),  # litery z 'litery'
+                ('ZM', 'C', 1, 0),  # puste
+                ('PREJ', 'N', 6, 0),  # puste
+            ]
+
+            stat_ok = 0
+            stat_brak_folderu = 0
+            stat_puste = 0
+
+            for idx, xls_path in enumerate(xls_files, start=1):
+                self.check_stop()
+                self.progress_current_file = xls_path.name
+
+                # Nazwa obrębu = nazwa pliku bez przyrostka "_Rozliczone" (i wszystkiego po nim)
+                v_name = re.sub(r'(?i)_?rozliczone.*$', '', xls_path.stem).strip()
+                if not v_name:
+                    v_name = xls_path.stem
+                v_norm = re.sub(r'[\s_\-]', '', v_name.lower())
+
+                # Szukamy pasującego folderu obrębu wśród Mietków (ściśle, bez fałszywych "LIS"/"LISIE POLE")
+                target_mietek = None
+                for folder in mietki_dir.iterdir():
+                    if folder.is_dir():
+                        f_norm = re.sub(r'[\s_\-]', '', folder.name.lower())
+                        if f_norm and f_norm == v_norm:
+                            target_mietek = folder
+                            break
+                if not target_mietek:
+                    self.log(f"  ⚠️ Pominięto {xls_path.name} — nie znaleziono folderu obrębu '{v_name}' w Mietkach.")
+                    stat_brak_folderu += 1
+                    self.set_progress(idx / total, current_file=xls_path.name, current=idx)
+                    continue
+
+                try:
+                    df = pd.read_excel(str(xls_path))
+                    if df.shape[1] < 6:
+                        self.log(f"  ❌ {xls_path.name}: plik ma mniej niż 6 kolumn — nie mogę odczytać kolumny F.")
+                        self.set_progress(idx / total, current_file=xls_path.name, current=idx)
+                        continue
+
+                    # Powierzchnia ZAWSZE z kolumny F (tam użytkownik redaguje krzyżówki)
+                    col_pow_name = df.columns[5]
+                    df_pow = pd.to_numeric(df.iloc[:, 5], errors='coerce')
+                    df_work = df.copy()
+                    df_work['__POW'] = df_pow
+                    df_filt = df_work[df_work['__POW'].notna()]
+
+                    if df_filt.empty:
+                        self.log(
+                            f"  ℹ️ {xls_path.name}: kolumna F ('{col_pow_name}') pusta — brak krzyżówek do wpisania.")
+                        stat_puste += 1
+                        self.set_progress(idx / total, current_file=xls_path.name, current=idx)
+                        continue
+
+                    records = []
+                    for _, row in df_filt.iterrows():
+                        try:
+                            nrrej_val = int(float(row.get('J. rej.', 0)))
+                        except Exception:
+                            nrrej_val = 0
+                        nr_dz = str(row.get('nr_dz', '')).strip()
+                        litery = str(row.get('litery', ''))
+                        oddzial = "".join(ch for ch in litery if ch.isdigit())[:7]  # cyfry  -> ODDZIAL
+                        pododdz = "".join(ch for ch in litery if ch.isalpha())[:3]  # litery -> PODODDZ
+                        pow_val = row['__POW']
+                        records.append({
+                            'NRREJ': nrrej_val,  # <-- KONIECZNIE, jako pierwsze
+                            'NR_DZIAL': nr_dz[:9],
+                            'POW': f"{float(pow_val):.4f}",
+                            'POW_L_ZAL': f"{float(pow_val):.4f}",
+                            # POW_L_NZAL / POW_N_ZAL / POW_INNE / ZM / PREJ celowo POMIJAMY
+                            # -> write_dbf zapisze je jako PUSTE (zgodnie ze strukturą MIETEK.EXE)
+                            'ODDZIAL': oddzial,
+                            'PODODDZ': pododdz,
+                        })
+
+                    # Szukamy istniejącego D*.DBF rekurencyjnie (nazwa podkatalogu bywa różna)
+                    d_dbfs = []
+                    seen = set()
+                    for p in (list(target_mietek.rglob("D*.DBF")) + list(target_mietek.rglob("D*.dbf")) +
+                              list(target_mietek.rglob("d*.DBF")) + list(target_mietek.rglob("d*.dbf"))):
+                        key = str(p).upper()
+                        if key not in seen:
+                            seen.add(key)
+                            d_dbfs.append(p)
+                    if d_dbfs:
+                        target_dbf = d_dbfs[0]
+                    else:
+                        # brak DBF -> zapisz do istniejącego podkatalogu *.001, a gdy go nie ma: WOL.001
+                        sub = self._find_001_dir(target_mietek)
+                        if sub is None:
+                            sub = target_mietek / "WOL.001"
+                        sub.mkdir(parents=True, exist_ok=True)
+                        target_dbf = sub / "D0011019.DBF"
+                    self.write_dbf(str(target_dbf), dbf_fields, records)
+                    self.log(
+                        f"  ✅ {xls_path.name} → {target_mietek.name}/{target_dbf.name} "
+                        f"({len(records)} rekordów, kolumna F='{col_pow_name}')"
+                    )
+                    stat_ok += 1
+                except Exception as e:
+                    self.log(f"  ❌ Błąd przetwarzania {xls_path.name}: {e}")
+
+                self.set_progress(idx / total, current_file=xls_path.name, current=idx)
+
+            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
+            self.log(
+                f"\n✅ KRZYŻÓWKI: zapisano {stat_ok}, puste {stat_puste}, "
+                f"brak folderu {stat_brak_folderu} (z {total})."
+            )
+            self.after(
+                0, lambda: messagebox.showinfo("Sukces", f"Wstrzyknięto krzyżówki do {stat_ok} obrębów.")
+            )
+        except InterruptedError:
+            self.update_status("Przerwano", "#D83B01", animate=False)
+            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+        except Exception as e:
+            self.log(traceback.format_exc())
+            self.update_status("Błąd", "#D83B01", animate=False)
+        finally:
+            self.running = False
+            self.after(0, self.restore_all_buttons)
+
+    # ==========================================
+    # ZAKŁADKA: HALIZNY (HALIZNY.TXT -> D*.DBF)
+    # ==========================================
+    def _classify_halizna(self, rodzaj):
+        """Zwraca nazwę kolumny docelowej dla danego rodzaju powierzchni, albo None."""
+        r = (rodzaj or '').lower()
+        if 'bagno' in r:
+            return 'POW_N_ZAL'
+        if 'energetyczna' in r:        # "Linia energetyczna" (odporne na kodowanie)
+            return 'POW_INNE'
+        if 'halizna' in r:
+            return 'POW_L_NZAL'
+        if 'azowina' in r:             # "Płazowina"/"plazowina" (odporne na kodowanie)
+            return 'POW_L_NZAL'
+        return None
+
+    def parse_halizny_txt(self, text, sep):
+        """Parsuje HALIZNY.TXT. Zwraca listę słowników:
+        {'oddzial','pododdz','kolumna','pow_txt','rodzaj'}.
+        Pomija ramki, nagłówki oraz wiersze sum (R.oddz. / Razem)."""
+        results = []
+        for line in text.splitlines():
+            if sep not in line:
+                continue
+            parts = line.split(sep)
+            if len(parts) < 4:
+                continue
+            col1 = parts[1].strip()   # oddzial+poddz, np. "1gx", "12tx", "16bx"
+            col2 = parts[2].strip()   # powierzchnia [ha], np. "0.1915"
+            col3 = parts[3].strip()   # rodzaj, np. "241-Halizna"
+            if not re.match(r'^\d+[a-zA-Z]*$', col1):
+                continue              # odrzuca "R.oddz.", "Razem", nagłówki
+            if not re.match(r'^\d+\.\d+$', col2):
+                continue              # odrzuca "Pow.", puste kom. sum
+            if not re.match(r'^\d+-', col3):
+                continue              # odrzuca puste kom. sum / nagłówki
+            oddzial = ''.join(ch for ch in col1 if ch.isdigit())
+            pododdz = ''.join(ch for ch in col1 if ch.isalpha())
+            rodzaj = col3.split('-', 1)[1].strip()
+            kolumna = self._classify_halizna(rodzaj)
+            if kolumna is None:
+                continue
+            results.append({
+                'oddzial': oddzial, 'pododdz': pododdz,
+                'kolumna': kolumna, 'pow_txt': col2, 'rodzaj': rodzaj,
+            })
+        return results
+
+    def setup_halizny_tab(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+        font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        font_btn = ctk.CTkFont(family="Segoe UI", size=13)
+        card = ctk.CTkFrame(
+            scroll_frame, fg_color="#252526", corner_radius=8,
+            border_width=1, border_color="#333333",
+        )
+        card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
+        card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(
+            card, text="Folder z utworzonymi Mietkami:",
+            font=font_label, text_color="#E0E0E0",
+        ).grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
+        self.halizny_mietki_entry = ctk.CTkEntry(
+            card, placeholder_text="Gdzie leżą foldery obrębów (np. BIAŁCZ\\WOL.001\\HALIZNY.TXT)?",
+            height=36,
+        )
+        self.halizny_mietki_entry.grid(row=0, column=1, padx=5, pady=(15, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.halizny_mietki_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=0, column=2, padx=15, pady=(15, 8))
+        ctk.CTkLabel(
+            card,
+            text="Reguły: Halizna/Płazowina -> POW_L_NZAL | Bagno -> POW_N_ZAL | "
+                 "Linia energetyczna -> POW_INNE.  Wartość brana z POW_L_ZAL (i tam czyszczona).",
+            font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#888888",
+        ).grid(row=1, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+        self.halizny_start_btn = ctk.CTkButton(
+            scroll_frame, text="Przenieś halizny w D*.DBF", image=self.icon_start,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#0067C0", hover_color="#005A9E", height=44, corner_radius=6,
+            command=self.start_halizny_pipeline,
+        )
+        self.halizny_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+
+    def start_halizny_pipeline(self):
+        mietki_dir = self.halizny_mietki_entry.get().strip() if self.halizny_mietki_entry else ""
+        if not mietki_dir or not Path(mietki_dir).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder z utworzonymi Mietkami.")
+            return
+        if self.running:
+            return
+        self.last_output_dir = Path(mietki_dir)
+        self._disable_ui_for_process()
+        self.log(f"[HALIZNY] URUCHOMIENIE\nMIETKI: {mietki_dir}")
+        self.set_progress(0)
+        threading.Thread(
+            target=self.run_halizny_thread, args=(mietki_dir,), daemon=True,
+        ).start()
+
+    def run_halizny_thread(self, mietki_dir_str):
+        try:
+            self.update_status("Przenoszenie halizn w plikach D*.DBF...", "#0078D7")
+            mietki_dir = Path(mietki_dir_str)
+            obraby = sorted([d for d in mietki_dir.iterdir() if d.is_dir()])
+            if not obraby:
+                raise Exception("Brak podfolderów obrębów we wskazanym folderze.")
+            total = len(obraby)
+            self.start_progress_tracking(total, "Przetwarzanie halizn")
+            stat_ok = 0
+            stat_brak_txt = 0
+            stat_brak_dbf = 0
+            stat_puste = 0
+
+            for idx, obr in enumerate(obraby, start=1):
+                self.check_stop()
+                self.progress_current_file = obr.name
+                # --- 1. Znajdź HALIZNY.TXT (rekurencyjnie; nazwa podkatalogu bywa różna: WOL.001 / KAM.001 / ...) ---
+                hal_path = None
+                for cand in obr.rglob("HALIZNY.TXT"):
+                    hal_path = cand
+                    break
+                if hal_path is None:
+                    for cand in obr.rglob("HALIZNY.*"):
+                        hal_path = cand
+                        break
+                if hal_path is None:
+                    self.log(f"  ⚠️ {obr.name}: brak HALIZNY.TXT — pomijam.")
+                    stat_brak_txt += 1
+                    self.set_progress(idx / total, current_file=obr.name, current=idx)
+                    continue
+
+                # --- 2. Odczyt z fallbackiem kodowania (cp852 -> cp1250) ---
+                raw = hal_path.read_bytes()
+                text = raw.decode('cp852', errors='replace')
+                wiersze = self.parse_halizny_txt(text, '│')
+                if not wiersze:
+                    text = raw.decode('cp1250', errors='replace')
+                    wiersze = self.parse_halizny_txt(text, 'ł')
+                if not wiersze:
+                    self.log(f"  ℹ️ {obr.name}: HALIZNY.TXT nie zawiera wierszy danych — pomijam.")
+                    stat_puste += 1
+                    self.set_progress(idx / total, current_file=obr.name, current=idx)
+                    continue
+
+                # --- 3. Mapa (oddzial,poddz) -> (kolumna, pow_txt, rodzaj) ---
+                hal_map = {}
+                for w in wiersze:
+                    key = (w['oddzial'], w['pododdz'])
+                    if key in hal_map and hal_map[key][2] != w['rodzaj']:
+                        self.log(
+                            f"  ⚠️ {obr.name}: pododdział {w['oddzial']}{w['pododdz']} "
+                            f"występuje w HALIZNY.TXT wielokrotnie z różnym rodzajem — używam ostatniego.")
+                    hal_map[key] = (w['kolumna'], w['pow_txt'], w['rodzaj'])
+
+                # --- 4. Znajdź D*.DBF (rekurencyjnie) ---
+                d_dbfs = []
+                seen = set()
+                for p in (list(obr.rglob("D*.DBF")) + list(obr.rglob("D*.dbf")) +
+                          list(obr.rglob("d*.DBF")) + list(obr.rglob("d*.dbf"))):
+                    k = str(p).upper()
+                    if k not in seen:
+                        seen.add(k)
+                        d_dbfs.append(p)
+                if not d_dbfs:
+                    self.log(f"  ⚠️ {obr.name}: brak pliku D*.DBF — pomijam.")
+                    stat_brak_dbf += 1
+                    self.set_progress(idx / total, current_file=obr.name, current=idx)
+                    continue
+                target_dbf = d_dbfs[0]
+
+                # --- 5. Odczyt DBF i indeks rekordów wg (ODDZIAL,PODODDZ) ---
+                try:
+                    fields, records = self.read_dbf(str(target_dbf))
+                except Exception as e:
+                    self.log(f"  ❌ {obr.name}: błąd odczytu {target_dbf.name}: {e}")
+                    self.set_progress(idx / total, current_file=obr.name, current=idx)
+                    continue
+                idx_map = {}
+                for ri, rec in enumerate(records):
+                    key = (str(rec.get('ODDZIAL', '')).strip(),
+                           str(rec.get('PODODDZ', '')).strip())
+                    idx_map.setdefault(key, []).append(ri)
+
+                # --- 6. Przeniesienie wartości z POW_L_ZAL do właściwej kolumny ---
+                przeniesione = 0
+                for key, (kolumna, pow_txt, rodzaj) in hal_map.items():
+                    if key not in idx_map:
+                        self.log(
+                            f"  ⚠️ {obr.name}: halizna {key[0]}{key[1]} ({rodzaj}) "
+                            f"nie ma rekordu w {target_dbf.name} — pomijam.")
+                        continue
+                    ri_list = idx_map[key]
+                    # HALIZNY.TXT podaje powierzchnię SUMARYCZNĄ dla pododdziału,
+                    # a w DBF ten pododdział może być rozbity na kilka rekordów.
+                    # Dlatego diagnostykę robimy na SUMIE, a nie na pojedynczym rekordzie.
+                    suma_dbf = 0.0
+                    for ri in ri_list:
+                        v = str(records[ri].get('POW_L_ZAL', '')).strip()
+                        if v:
+                            try:
+                                suma_dbf += float(v)
+                            except Exception:
+                                pass
+                    # Ostrzeżenie TYLKO przy prawdziwej rozbieżności sum
+                    # (czyli gdy pododdział jest tylko CZĘŚCIOWO halizną / danymi niezgodnymi).
+                    try:
+                        if pow_txt and abs(suma_dbf - float(pow_txt)) > 0.0011:
+                            self.log(
+                                f"  ⚠️ {obr.name}: rozbieżność SUMY pow. dla {key[0]}{key[1]}: "
+                                f"suma DBF={suma_dbf:.4f} vs HALIZNY={pow_txt}")
+                    except Exception:
+                        pass
+                    # Przeniesienie rekord-po-rekordzie (cała POW_L_ZAL -> kolumna docelowa)
+                    for ri in ri_list:
+                        rec = records[ri]
+                        val = str(rec.get('POW_L_ZAL', '')).strip()
+                        if not val:
+                            self.log(
+                                f"  ⚠️ {obr.name}: rekord {key[0]}{key[1]} ma pustą "
+                                f"POW_L_ZAL — nie ma czego przenieść.")
+                            continue
+                        rec[kolumna] = val
+                        rec['POW_L_ZAL'] = '0.0000'
+                        przeniesione += 1
+
+                if przeniesione == 0:
+                    self.log(
+                        f"  ℹ️ {obr.name}: brak rekordów do przeniesienia "
+                        f"(halizny nie pokrywają się z {target_dbf.name}).")
+                    self.set_progress(idx / total, current_file=obr.name, current=idx)
+                    continue
+
+                self.write_dbf(str(target_dbf), fields, records)
+                self.log(
+                    f"  ✅ {obr.name}: przeniesiono {przeniesione} wartości halizn w {target_dbf.name}.")
+                stat_ok += 1
+                self.set_progress(idx / total, current_file=obr.name, current=idx)
+
+            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
+            self.log(
+                f"\n✅ HALIZNY: zmodyfikowano {stat_ok} obrębów; brak TXT {stat_brak_txt}, "
+                f"brak DBF {stat_brak_dbf}, puste {stat_puste} (z {total}).")
+            self.after(
+                0, lambda: messagebox.showinfo("Sukces", f"Halizny: zmodyfikowano {stat_ok} obrębów."))
+        except InterruptedError:
+            self.update_status("Przerwano", "#D83B01", animate=False)
+            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+        except Exception as e:
+            self.log(traceback.format_exc())
+            self.update_status("Błąd", "#D83B01", animate=False)
+        finally:
+            self.running = False
+            self.after(0, self.restore_all_buttons)
+
+    def start_tworzenie_mietkow_pipeline(self):
+        baz_dir = self.mietki_bazowy_entry.get().strip() if hasattr(self, 'mietki_bazowy_entry') and self.mietki_bazowy_entry else ""
+        rozl_dir = self.mietki_rozlicz_entry.get().strip() if hasattr(self, 'mietki_rozlicz_entry') and self.mietki_rozlicz_entry else ""
+        out_dir = self.mietki_out_entry.get().strip() if self.mietki_out_entry else ""
+
+        if not baz_dir or not Path(baz_dir).exists():
+            messagebox.showwarning("Błąd", "Wybierz główny folder z plikami XLS (Ewidencja).")
+            return
+        if not rozl_dir or not Path(rozl_dir).exists():
+            messagebox.showwarning("Błąd", "Wybierz folder z plikami rozliczonymi (XLSX).")
+            return
+        if not out_dir:
+            messagebox.showwarning("Błąd", "Wybierz folder docelowy dla nowych obrębów.")
+            return
+
+        # Pobieranie nazw wsi bezpośrednio z nazw plików XLS w folderze bazowym
+        baz_path = Path(baz_dir)
+        xls_files = [
+            f.stem for f in baz_path.iterdir()
+            if f.is_file() and f.suffix.lower() in {'.xls', '.xlsx'} and not f.name.startswith("~$")
+        ]
+
+        if not xls_files:
+            messagebox.showwarning("Błąd", "We wskazanym folderze XLS Ewidencji nie znaleziono żadnych plików, z których można by pobrać nazwy obrębów.")
+            return
+
+        # Zostawiamy unikalne i posortowane nazwy (stemy plików bez rozszerzeń)
+        names_list = sorted(list(set(xls_files)))
+
+        # Weryfikacja zasobu "pustego" folderu
+        base_dir = get_resource_path("pusty")
+        if not Path(base_dir).exists() or not Path(base_dir).is_dir():
+            messagebox.showerror("Błąd", f"Nie znaleziono wbudowanego folderu 'pusty' w plikach programu!\nŚcieżka: {base_dir}")
+            return
+
+        if self.running: return
+        self.last_output_dir = Path(out_dir)
+        self._disable_ui_for_process()
+        self.set_progress(0)
+
+        wsie_meta = {
+            'WOJEW': self.wsie_wojew_entry.get().strip(),
+            'POWIAT': self.wsie_powiat_entry.get().strip(),
+            'STAN_NA': self.wsie_stan_entry.get().strip(),
+            'OBOW_OD': self.wsie_obod_entry.get().strip(),
+            'OBOW_DO': self.wsie_obdo_entry.get().strip(),
+            'NR_WSI': self.wsie_nrws_entry.get().strip() or "1",
+            'ROK_ZAL': self.wsie_rokz_entry.get().strip(),
+        }
+        if not wsie_meta['POWIAT']:
+            self.log("[UWAGA] Pole 'Powiat' w danych WSIE.DBF jest puste — uzupełnij je, jeśli MIETEK go wymaga.")
+        threading.Thread(
+            target=self.run_tworzenie_mietkow_thread,
+            args=(base_dir, out_dir, names_list, baz_dir, rozl_dir, wsie_meta),
+            daemon=True
+        ).start()
+
+    def read_dbf(self, filename):
+        """Odczytuje plik dBase III zwracając (fields, records).
+        fields  = lista (nazwa, typ, dlugosc, decimals)
+        records = lista słowników {nazwa_pola: wartosc_strip}
+        Round-trip z write_dbf jest bezstratny dla pól C i N."""
+        import struct
+        with open(filename, 'rb') as f:
+            header = f.read(32)
+            if len(header) < 32:
+                raise Exception(f"Za krótki nagłówek DBF: {filename}")
+            num_records = struct.unpack('<I', header[4:8])[0]
+            header_length = struct.unpack('<H', header[8:10])[0]
+            record_length = struct.unpack('<H', header[10:12])[0]
+            fields = []
+            while True:
+                fld = f.read(32)
+                if len(fld) < 32 or fld[0] == 0x0D:
+                    break
+                name = fld[0:11].split(b'\x00', 1)[0].decode('ascii', 'replace')
+                typ = chr(fld[11])
+                length = fld[16]
+                decimals = fld[17]
+                fields.append((name, typ, length, decimals))
+            f.seek(header_length)
+            records = []
+            for i in range(num_records):
+                rec_raw = f.read(record_length)
+                if len(rec_raw) < record_length:
+                    break
+                rec = {}
+                off = 1  # pomijamy bajt flagi usunięcia
+                for (name, typ, length, decimals) in fields:
+                    raw = rec_raw[off:off + length]
+                    off += length
+                    if typ in ('C', 'M', 'G'):
+                        rec[name] = raw.decode('cp852', 'replace').strip()
+                    elif typ in ('N', 'F'):
+                        rec[name] = raw.decode('ascii', 'replace').strip()
+                    elif typ == 'D':
+                        rec[name] = raw.decode('ascii', 'replace').strip()
+                    elif typ == 'L':
+                        rec[name] = chr(raw[0]) if raw else ''
+                    else:
+                        rec[name] = raw.decode('cp852', 'replace').strip()
+                records.append(rec)
+        return fields, records
+
+    def write_dbf(self, filename, fields, records):
+        import struct
+        import datetime
+        num_records = len(records)
+        header_length = 32 + (len(fields) * 32) + 1
+        record_length = 1 + sum(f[2] for f in fields)
+        with open(filename, 'wb') as f:
+            f.write(struct.pack('<B', 0x03))
+            now = datetime.datetime.now()
+            f.write(struct.pack('<3B', now.year - 1900, now.month, now.day))
+            f.write(struct.pack('<I', num_records))
+            f.write(struct.pack('<H', header_length))
+            f.write(struct.pack('<H', record_length))
+            f.write(b'\x00' * 20)
+            for field in fields:
+                name, typ, length, decimals = field
+                name_bytes = name.encode('ascii')[:10].ljust(11, b'\x00')
+                f.write(name_bytes)
+                f.write(typ.encode('ascii'))
+                f.write(b'\x00' * 4)
+                f.write(struct.pack('<B', length))
+                f.write(struct.pack('<B', decimals))
+                f.write(b'\x00' * 14)
+            f.write(struct.pack('<B', 0x0D))
+            for rec in records:
+                f.write(b' ')
+                for field in fields:
+                    name, typ, length, decimals = field
+                    val = rec.get(name, "0") if typ == 'N' else rec.get(name, "")
+                    if typ == 'C':
+                        val_bytes = str(val).encode('cp852', errors='replace')[:length].ljust(length, b' ')
+                        f.write(val_bytes)
+                    elif typ == 'N':
+                        val_str = str(val)[:length]
+                        val_bytes = val_str.encode('ascii', errors='ignore').rjust(length, b' ')
+                        f.write(val_bytes)
+                    elif typ == 'D':
+                        val_bytes = str(val).encode('ascii', errors='ignore')[:length].ljust(length, b' ')
+                        f.write(val_bytes)
+            f.write(struct.pack('<B', 0x1A))
+
+    def parse_wlasciciel(self, text, j_rej):
+        if pd.isna(text): return []
+        text = str(text).strip()
+        blocks = re.split(r'(?m)^(\d+/\d+)\s+\[.*?\]\s*', text)
+        if len(blocks) == 1:
+            text = "1/1 [własność] " + text
+            blocks = re.split(r'(?m)^(\d+/\d+)\s+\[.*?\]\s*', text)
+
+        results = []
+        for i in range(1, len(blocks), 2):
+            share = blocks[i].strip()
+            if share == '1/1': share = ""
+            rest = blocks[i+1]
+            lines = [line.strip() for line in rest.split('\n') if line.strip()]
+
+            names = []
+            addresses = []
+            parsing_names = True
+
+            for line in lines:
+                if line == 'Podmiot grupowy': continue
+                if parsing_names:
+                    clean_name = re.sub(r'\s*\[(OF|OP|PG)\]', '', line).strip()
+                    names.append(clean_name)
+                    if re.search(r'\[(OF|OP|PG)\]', line): parsing_names = False
+                else:
+                    addresses.append(line)
+
+            if parsing_names and len(names) > 1:
+                 addresses = names[1:]
+                 names = [names[0]]
+
+            for j, name in enumerate(names):
+                addr = addresses[j] if j < len(addresses) else (addresses[-1] if addresses else "")
+
+                # --- ODWRÓCENIE FORMATU ADRESU ---
+                if ';' in addr:
+                    parts = [p.strip() for p in addr.split(';')]
+                    # Łączymy od tyłu, oddzielając spacją (np. Kod Miasto + Spacja + Ulica)
+                    addr = " ".join(parts[::-1])
+                # ---------------------------------
+                addr = self.napraw_powtorzenia_adresu(addr)  # <-- usuwa powtórzenie miejscowości
+                try:
+                    nrrej_val = int(float(j_rej))
+                except: nrrej_val = 0
+                results.append({
+                    'NRREJ': nrrej_val, 'NAZWISKO': str(name)[:30].strip(),
+                    'IMIE': str(share)[:30].strip(), 'RODZICE': '', 'ADRES': str(addr)[:60].strip()
+                })
+        return results
+
+    def _parse_dbf_date(self, s):
+        """Zamienia datę z pola GUI (np. '1.01.2023', '01.01.2023', '2023-01-01')
+        na format dBase 'YYYYMMDD'. Zwraca '' gdy pusto/niepoprawnie."""
+        if not s:
+            return ""
+        nums = re.findall(r'\d+', str(s))
+        if len(nums) == 3:
+            d, m, y = nums[0], nums[1], nums[2]
+            return f"{int(y):04d}{int(m):02d}{int(d):02d}"
+        if len(nums) == 1 and len(nums[0]) == 8:
+            return nums[0]
+        return ""
+
+    def build_wsie_record(self, name, meta):
+        """Buduje jeden rekord WSIE.DBF dla obrębu 'name'."""
+        return {
+            'NAZWA':   str(name)[:40],
+            'WOJEW':   str(meta.get('WOJEW', ''))[:30],
+            'GMINA':   str(name)[:30],                       # auto = nazwa obrębu
+            'STAN_NA': self._parse_dbf_date(meta.get('STAN_NA', '')),
+            'OBOW_OD': self._parse_dbf_date(meta.get('OBOW_OD', '')),
+            'OBOW_DO': self._parse_dbf_date(meta.get('OBOW_DO', '')),
+            'NR_WSI':  str(meta.get('NR_WSI', '1')),
+            'ROK_ZAL': str(meta.get('ROK_ZAL', ''))[:2],
+            'POWIAT':  str(meta.get('POWIAT', ''))[:30],
+            # pozostałe pola (SPR, ZLC, ET1.., OCHR*, ZDR*, ZG*, PRZY*, SANITAR*, US*, EG*)
+            # celowo POMIJAMY -> write_dbf zapisze je jako PUSTE.
+        }
+
+    def napraw_powtorzenia_adresu(self, addr):
+        """Usuwa powtórzoną nazwę miejscowości w adresie.
+        Np. '64-412 BIAŁCZ BIAŁCZ 1' -> '64-412 BIAŁCZ 1'
+             '64-412 CHRZYPSKO WIELKIE CHRZYPSKO WIELKIE 1' -> '64-412 CHRZYPSKO WIELKIE 1'
+        Działa tylko, gdy adres zaczyna się od kodu pocztowego i powtórzony blok
+        stoi bezpośrednio przed numerem domu (więc nie psuje poprawnych adresów)."""
+        if not addr:
+            return addr
+        s = addr.strip()
+        m = re.match(r'^(\d{2}-\d{3})\s+(.+?)\s+\2(?:\s+(\d.*))?\s*$', s)
+        if m:
+            kod, miejsc, numer = m.group(1), m.group(2), m.group(3)
+            return f"{kod} {miejsc} {numer}".strip() if numer else f"{kod} {miejsc}"
+        return s
+
+    def _find_001_dir(self, obr):
+        """Zwraca istniejący podkatalog pasujący do *.001 (WOL.001 / KAM.001 / ...)
+        w obrębie folderu obrębu, albo None jeśli takiego nie ma."""
+        for d in obr.rglob("*.001"):
+            if d.is_dir():
+                return d
+        return None
+
+    def _parse_dbf_date(self, s):
+        """'1.01.2023' / '01.01.2023' / '2023-01-01' -> '20230101' (format dBase). '' gdy pusto."""
+        if not s:
+            return ""
+        nums = re.findall(r'\d+', str(s))
+        if len(nums) == 3:
+            d, m, y = nums[0], nums[1], nums[2]
+            return f"{int(y):04d}{int(m):02d}{int(d):02d}"
+        if len(nums) == 1 and len(nums[0]) == 8:
+            return nums[0]
+        return ""
+
+    def build_wsie_record(self, name, meta):
+        """Buduje jeden rekord WSIE.DBF dla obrębu 'name'."""
+        return {
+            'NAZWA':   str(name)[:40],
+            'WOJEW':   str(meta.get('WOJEW', ''))[:30],
+            'GMINA':   str(name)[:30],                       # auto = nazwa obrębu
+            'STAN_NA': self._parse_dbf_date(meta.get('STAN_NA', '')),
+            'OBOW_OD': self._parse_dbf_date(meta.get('OBOW_OD', '')),
+            'OBOW_DO': self._parse_dbf_date(meta.get('OBOW_DO', '')),
+            'NR_WSI':  str(meta.get('NR_WSI', '1')),
+            'ROK_ZAL': str(meta.get('ROK_ZAL', ''))[:2],
+            'POWIAT':  str(meta.get('POWIAT', ''))[:30],
+            # pozostałe pola (SPR, ZLC, ET1.., OCHR*, ZDR*, ZG*, PRZY*, SANITAR*, US*, EG*)
+            # celowo POMIJAMY -> write_dbf zapisze je jako PUSTE.
+        }
+
+    def process_mietek_dbf(self, path_bazowy, path_rozl):
+        try:
+            df_rozl = pd.read_excel(path_rozl)
+            if 'J. rej.' not in df_rozl.columns: return []
+            unique_j_rej = df_rozl['J. rej.'].dropna().astype(str).str.replace(r'\.0$', '', regex=True).unique()
+            unique_j_rej = set(unique_j_rej)
+
+            df_raw = pd.read_excel(path_bazowy, header=None, nrows=20)
+            header_row = 1
+            for i, row in df_raw.iterrows():
+                row_str = " ".join([str(val).lower() for val in row.values])
+                if 'numer działki' in row_str or 'numer dzialki' in row_str:
+                    header_row = i
+                    break
+            df_baz = pd.read_excel(path_bazowy, header=header_row)
+
+            if 'J. rej.' not in df_baz.columns or 'Właściciel' not in df_baz.columns: return []
+
+            def extract_after_g(val):
+                v_str = str(val)
+                if 'G' in v_str: return v_str.split('G')[-1]
+                return v_str
+
+            df_baz['J. rej. clean'] = df_baz['J. rej.'].apply(extract_after_g).astype(str).str.replace(r'\.0$', '', regex=True)
+            matched_rows = df_baz[df_baz['J. rej. clean'].isin(unique_j_rej)]
+            matched_rows = matched_rows.drop_duplicates(subset=['J. rej. clean'])
+
+            dbf_records = []
+            for _, row in matched_rows.iterrows():
+                j_rej_val = row['J. rej. clean']
+                wlasciciel_text = row['Właściciel']
+                recs = self.parse_wlasciciel(wlasciciel_text, j_rej_val)
+                dbf_records.extend(recs)
+            return dbf_records
+        except Exception as e:
+            self.log(f"  [Błąd DBF] Nie udało się odczytać plików: {e}")
+            return []
+
+    def run_tworzenie_mietkow_thread(self, base_dir_str, out_dir_str, names_list, baz_dir_str, rozl_dir_str, wsie_meta=None):
+        try:
+            self.update_status("Generowanie struktury MIETEK...", "#0078D7")
+            base_dir = Path(base_dir_str)
+            out_dir = Path(out_dir_str)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            baz_dir = Path(baz_dir_str) if baz_dir_str else None
+            rozl_dir = Path(rozl_dir_str) if rozl_dir_str else None
+
+            total = len(names_list)
+            self.start_progress_tracking(total, "Kopiowanie folderów bazowych")
+
+            stat_sukces = 0
+            stat_bledy = []
+
+            dbf_fields = [
+                ('NRREJ', 'N', 5, 0), ('NAZWISKO', 'C', 30, 0),
+                ('IMIE', 'C', 30, 0), ('RODZICE', 'C', 30, 0), ('ADRES', 'C', 60, 0),
+                ('KOLEJNY', 'N', 3, 0), ('PREJ', 'N', 6, 0)
+            ]
+
+            for idx, name in enumerate(names_list, start=1):
+                self.check_stop()
+                self.progress_current_file = name
+                self.log(f"[MIETKI] Tworzenie folderu dla: {name}")
+
+                target_dir = out_dir / name
+                try:
+                    if target_dir.exists():
+                        self.log(f"  -> Folder '{name}' już istnieje. Struktura zostanie uzupełniona.")
+                    shutil.copytree(base_dir, target_dir, dirs_exist_ok=True)
+
+                    # WSTRZYKIWANIE BAZY WŁAŚCICIELI (jeśli podano foldery)
+                    if baz_dir and rozl_dir:
+                        path_baz = self.find_matching_file(baz_dir, name)
+                        path_rozl = self.find_matching_file(rozl_dir, name)
+
+                        if path_baz and path_rozl:
+                            dbf_records = self.process_mietek_dbf(path_baz, path_rozl)
+                            if dbf_records:
+                                # szukaj istniejącego W*.DBF rekurencyjnie (po skopiowaniu szablonu na pewno tam jest)
+                                w_dbfs = []
+                                seen = set()
+                                for p in (list(target_dir.rglob("W*.DBF")) + list(target_dir.rglob("W*.dbf")) +
+                                          list(target_dir.rglob("w*.DBF")) + list(target_dir.rglob("w*.dbf"))):
+                                    key = str(p).upper()
+                                    if key not in seen:
+                                        seen.add(key)
+                                        w_dbfs.append(p)
+                                if w_dbfs:
+                                    target_dbf = w_dbfs[0]
+                                else:
+                                    sub = self._find_001_dir(target_dir)
+                                    if sub is None:
+                                        sub = target_dir / "WOL.001"
+                                    sub.mkdir(parents=True, exist_ok=True)
+                                    target_dbf = sub / "W0011019.DBF"
+                                self.write_dbf(str(target_dbf), dbf_fields, dbf_records)
+                                self.log(f"  -> Zapisano {len(dbf_records)} właścicieli do {target_dbf.name}")
+                            else:
+                                self.log(f"  -> Brak danych właścicieli do wpisania dla '{name}'.")
+                        else:
+                            self.log(f"  -> Ominięto wpisywanie właścicieli. Brak pliku XLS lub XLSX dla '{name}'.")
+
+                    # --- ZAPIS WSIE.DBF (metadane obrębu, 1 rekord) ---
+                    try:
+                        wol_dir_wsie = target_dir / "WOL.001"
+                        wol_dir_wsie.mkdir(parents=True, exist_ok=True)
+                        wsie_dbf = wol_dir_wsie / "WSIE.DBF"
+                        wsie_record = self.build_wsie_record(name, wsie_meta or {})
+                        self.write_dbf(str(wsie_dbf), WSIE_FIELDS, [wsie_record])
+                        self.log(
+                            f"  -> Zapisano WSIE.DBF (NAZWA={name}, GMINA={name}, POWIAT={(wsie_meta or {}).get('POWIAT', '')})")
+                    except Exception as e:
+                        self.log(f"  -> [Ostrzeżenie] Błąd zapisu WSIE.DBF dla '{name}': {e}")
+                    stat_sukces += 1
+                except Exception as e:
+                    self.log(f"  ❌ Błąd kopiowania dla '{name}': {e}")
+                    stat_bledy.append(name)
+
+                self.set_progress(idx / total)
+
+            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
+            self.log(f"\n✅ Zakończono generowanie folderów. Utworzono: {stat_sukces}/{total}")
+            self.after(0, lambda: messagebox.showinfo("Sukces", f"Wygenerowano pomyślnie {stat_sukces} folderów MIETEK."))
+
+        except InterruptedError:
+            self.update_status("Przerwano", "#D83B01", animate=False)
+            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+        except Exception as e:
+            self.log(traceback.format_exc())
+            self.update_status("Błąd", "#D83B01", animate=False)
+        finally:
+            self.running = False
+            self.after(0, self.restore_all_buttons)
+
+# ==========================================
+# GŁÓWNY PUNKT WEJŚCIA PROGRAMU (START)
+# ==========================================
 
     # ZMODYFIKOWANE METODY ZADANIOWE ZWRACAJĄCE LICZNIK DLA DASHBOARDU
     def task_clean_txt(self, in_dir, out_dir, file_filter=None):
@@ -5908,7 +7669,8 @@ class ModernApp(ctk.CTk):
             except Exception as e:
                 self.log(f"Błąd pliku {f.name}: {e}")
 
-            return count
+        # TUTAJ BYŁ BŁĄD - to musi być na równi z "for", a nie wewnątrz niego!
+        return count
 
     def task_word_processing_subprocess(
             self, in_dir, out_dir, remove_names, file_filter=None
