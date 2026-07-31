@@ -1,0 +1,269 @@
+padlo : 17-09-2009  15:15:56
+
+Bˆ¥d DBFNTX/1001  Open error: O0010608.DBF (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: DBUSEAREA(0)  
+Przerwano na: DRUK_WSK1(6371)  
+Przerwano na: MENU(163)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 18-09-2009  16:42:43
+
+Bˆ¥d DBFNTX/1001  Open error: O0010608.DBF (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: DBUSEAREA(0)  
+Przerwano na: DRUK_WSK1(6371)  
+Przerwano na: MENU(163)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 29-09-2010  20:12:47
+
+Bˆ¥d BASE/1003  Variable does not exist: NAZWA_B
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: MENU(510)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 30-09-2010  08:27:25
+
+Bˆ¥d BASE/1003  Variable does not exist: PODODDZ
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: REJE(1002)  
+Przerwano na: MENU(89)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 30-09-2010  18:37:12
+
+Bˆ¥d BASE/1003  Variable does not exist: ZM
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: (b)REJE(20)  
+Przerwano na: obj:STABILIZE(0)  
+Przerwano na: REJE(326)  
+Przerwano na: MENU(89)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 12-10-2010  09:08:09
+
+Bˆ¥d DBFNTX/1006  Create error: SBONITA.NTX (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: INIT_LIST3(813)  
+Przerwano na: NOWY_OP(1494)  
+Przerwano na: TAX(412)  
+Przerwano na: MENU(99)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 13-10-2010  10:16:23
+
+Bˆ¥d DBFNTX/1006  Create error: NAZIM.NTX (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DRUK_TAX(594)  
+Przerwano na: MENU(155)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 13-10-2010  18:17:22
+
+Bˆ¥d DBFNTX/1001  Open error: SRODZPOW.LST (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: DBUSEAREA(0)  
+Przerwano na: INIT_LIST(764)  
+Przerwano na: DRUK_HALIZ(7281)  
+Przerwano na: MENU(225)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 28-10-2010  12:10:29
+
+Bˆ¥d DBFNTX/1006  Create error: R0070810.NTX (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: ACT_BAZA(2146)  
+Przerwano na: MENU(178)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 28-10-2010  12:11:07
+
+Bˆ¥d DBFNTX/1006  Create error: LAS1.NTX (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: DRUK_REBNI(7022)  
+Przerwano na: MENU(217)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 28-10-2010  12:13:12
+
+Bˆ¥d DBFNTX/1001  Open error: SSIEDLI.LST (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: DBUSEAREA(0)  
+Przerwano na: INIT_LIST(764)  
+Przerwano na: DRUK_REBNI(7046)  
+Przerwano na: MENU(217)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 30-08-2013  19:47:36
+
+Bˆ¥d DBFNTX/1001  Open error: SSIEDLI.LST (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: DBUSEAREA(0)  
+Przerwano na: INIT_LIST(764)  
+Przerwano na: DRUK_REBNI(7505)  
+Przerwano na: MENU(217)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 01-03-2018  21:09:45
+
+Bˆ¥d BASE/1003  Variable does not exist: NRREJ
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: (b)ACT_BAZA(2126)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: ACT_BAZA(2126)  
+Przerwano na: MENU(88)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 01-03-2018  21:10:35
+
+Bˆ¥d BASE/1003  Variable does not exist: NRREJ
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: (b)ACT_BAZA(2126)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: ACT_BAZA(2126)  
+Przerwano na: MENU(88)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 06-03-2018  21:40:25
+
+Bˆ¥d BASE/1003  Variable does not exist: NRREJ
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: (b)ACT_BAZA(2126)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: ACT_BAZA(2126)  
+Przerwano na: MENU(88)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 06-03-2018  22:59:23
+
+Bˆ¥d BASE/1003  Variable does not exist: NRREJ
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: (b)ACT_BAZA(2126)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: ACT_BAZA(2126)  
+Przerwano na: MENU(88)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 04-04-2018  08:53:28
+
+Bˆ¥d DBCMD/2001  Workarea not in use: DBGOTOP
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: DBGOTOP(0)  
+Przerwano na: REJE(318)  
+Przerwano na: MENU(89)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 04-04-2018  08:53:53
+
+Bˆ¥d DBCMD/2001  Workarea not in use: DBGOTOP
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: DBGOTOP(0)  
+Przerwano na: REJE(318)  
+Przerwano na: MENU(89)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 22-06-2018  16:24:17
+
+Bˆ¥d BASE/1003  Variable does not exist: ZM
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: (b)REJE(20)  
+Przerwano na: obj:STABILIZE(0)  
+Przerwano na: REJE(326)  
+Przerwano na: MENU(89)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 14-07-2018  12:35:06
+
+Bˆ¥d DBFNTX/1006  Create error: NAZIM.NTX (DOS Bˆ¥d 4) 
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DRUK_TAX(594)  
+Przerwano na: MENU(155)  
+Przerwano na: MIETEK(245)  
+
+
+padlo : 22-02-2023  11:18:48
+
+Bˆ¥d DBCMD/2001  Workarea not in use: ORDCREATE
+
+Przerwano na: LOCKERRHAN(0)  
+Przerwano na: (b)INITHANDL$(0)  
+Przerwano na: ORDCREATE(0)  
+Przerwano na: DBCREATEIN(0)  
+Przerwano na: NOWY_OP(766)  
+Przerwano na: TAX(102)  
+Przerwano na: MENU(99)  
+Przerwano na: MIETEK(245)  
+
+
