@@ -8,3 +8,5 @@ pillow
 pandas
 CTkToolTip
 xlrd
+numpy
+openpyxl
