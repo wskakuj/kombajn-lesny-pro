@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.3.4"
+CURRENT_VERSION = "v1.3.5"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -468,9 +468,16 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
         if target.exists() and f.stem.upper() in FILES_TO_FIX:
             all_files.append(target)
 
-    for target in all_files:
+    for idx, target in enumerate(all_files):
         os.startfile(str(target))
-        time.sleep(3)
+
+        # --- ZABEZPIECZENIE 3: Dłuższy czas na otworzenie pierwszego pliku ---
+        # Pierwszy plik ładuje Worda od zera (zimny start), co zajmuje najwięcej czasu.
+        if idx == 0:
+            time.sleep(8)  # 8 sekund na start Worda
+        else:
+            time.sleep(3.5)  # 3,5 sekundy dla kolejnych, otwierających się już błyskawicznie
+
         pyautogui.hotkey("ctrl", "a")
         time.sleep(0.3)
         pyautogui.press("alt")
@@ -487,10 +494,21 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
         time.sleep(0.2)
         pyautogui.press("enter")
         time.sleep(0.5)
-        pyautogui.hotkey("ctrl", "s")
-        time.sleep(0.3)
-        pyautogui.hotkey("ctrl", "w")
+
+        # --- ZABEZPIECZENIE 1: Odznaczamy tekst strzałką w prawo ---
+        pyautogui.press("right")
+        time.sleep(0.2)
+
+        # --- ZABEZPIECZENIE 2: Twarde przytrzymanie CTRL do zapisu i zamknięcia ---
+        pyautogui.keyDown("ctrl")
+        time.sleep(0.1)
+        pyautogui.press("s")
+        time.sleep(0.5)
+        pyautogui.press("w")
+        time.sleep(0.1)
+        pyautogui.keyUp("ctrl")
         time.sleep(0.8)
+
         print(f"  └─ Skorygowano wizualnie: {target.parent.name}/{target.name}")
 
     if all_files:
