@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.3.5"
+CURRENT_VERSION = "v1.3.6"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -355,12 +355,12 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
             if "\x00" in text:
                 continue
             doc = Document()
-            doc.styles["Normal"].font.name = "Courier New"
+            doc.styles["Normal"].font.name = "Cascadia Code"
             doc.styles["Normal"].font.size = Pt(10)
-            doc.styles["Normal"].element.rPr.rFonts.set(qn("w:eastAsia"), "Courier New")
+            doc.styles["Normal"].element.rPr.rFonts.set(qn("w:eastAsia"), "Cascadia Code")
             p = doc.add_paragraph()
             r = p.add_run(clean_xml_incompatible(text))
-            r.font.name = "Courier New"
+            r.font.name = "Cascadia Code"
             r.font.size = Pt(10)
             doc.save(str(target))
             print(f"  └─ Utworzono: {target.parent.name}/{target.name}")
@@ -369,8 +369,8 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
     word = None  # <--- Inicjalizacja przed try
     try:
         word = win32com.client.DispatchEx("Word.Application")
-        word.Visible = False
-        word.DisplayAlerts = 0
+        word.Visible = False  # <--- ZMIANA NA True (Word będzie widoczny)
+        word.DisplayAlerts = 0  # <--- ZMIANA NA -1 (Włączamy alerty)
         shell = win32com.client.Dispatch("WScript.Shell")
         print(">>> Generowanie standardowych plików DOC...")
         for f in files:
@@ -382,7 +382,7 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
                     text = fh.read()
                 doc = word.Documents.Add()
                 doc.Content.InsertAfter(text)
-                doc.Content.Font.Name = "Courier New"
+                doc.Content.Font.Name = "Cascadia Code"
                 doc.Content.Font.Size = 10
                 doc.Content.ParagraphFormat.SpaceAfter = 0
                 doc.Content.ParagraphFormat.SpaceBefore = 0
@@ -443,11 +443,10 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
                         if remove_names:
                             try:
                                 doc.Content.Font.Size = 9
-                                doc.Characters(1).Select()
-                                word.Selection.Bookmarks("\\Page").Range.Delete()
+                                # Usunięto kod kasujący pierwszą stronę!
                             except Exception as e:
                                 print(
-                                    f"  └─ Ostrzeżenie: Błąd podczas zmiany czcionki/usuwania 1 strony ({e})"
+                                    f"  └─ Ostrzeżenie: Błąd podczas zmiany czcionki ({e})"
                                 )
                         print(f"  └─ Zakończono: {target.parent.name}/{target.name}")
                     finally:
@@ -490,7 +489,7 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
         time.sleep(0.2)
         pyautogui.press("up")
         time.sleep(0.3)
-        pyautogui.write("Courier New")
+        pyautogui.write("Cascadia Code")
         time.sleep(0.2)
         pyautogui.press("enter")
         time.sleep(0.5)
