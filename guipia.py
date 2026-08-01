@@ -22,7 +22,7 @@ from tkinter import ttk
 import win32com.client
 import pythoncom
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Cm
 from docx.oxml.ns import qn
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import fitz
@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.3.7"
+CURRENT_VERSION = "v1.4.0"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -53,6 +53,7 @@ ctk.set_default_color_theme("blue")
 ENCODING = "cp852"
 ORDER_FILE_NAME = "pdf_merge_orders.json"
 HISTORY_FILE = Path(__file__).parent / "folder_history.json"
+MARGINS_FILE = Path(__file__).parent / "margins_config.json" # <--- DODANA LINIJKA
 
 SEQUENCES_TO_REMOVE = [
     b"\x1b(s16.67H\x1b&l4E\x1b&a1L",
@@ -189,6 +190,19 @@ def kill_orphan_office_processes():
     except Exception as e:
         print(f"[INFO] Błąd czyszczenia procesów tła: {e}")
 
+def load_margins():
+    if MARGINS_FILE.exists():
+        try:
+            return json.loads(MARGINS_FILE.read_text(encoding="utf-8"))
+        except:
+            pass
+    return {}
+
+def save_margins(data):
+    try:
+        MARGINS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[INFO] Błąd zapisu marginesów: {e}")
 
 def clean_xml_incompatible(text):
     return re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F]", "", text)
@@ -317,7 +331,9 @@ def add_tooltip(widget, text):
 # ==========================================
 # PROCES WYKONAWCZY WORDA (IZOLOWANY)
 # ==========================================
-def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
+def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None, margin_config=None):
+    if margin_config is None: margin_config = {}
+
     if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
@@ -325,7 +341,7 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
 
     import pyautogui
 
-    FILES_TO_FIX = ["OPTAX", "TAB_KLW3", "HALIZNY"]
+    FILES_TO_FIX = ["OPTAX", "TAB_KLW3", "HALIZNY", "WYK_NEG"]
     in_dir = Path(in_dir_str)
     out_dir = Path(out_dir_str)
     files = list(in_dir.rglob("*.txt"))
@@ -354,7 +370,45 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
                 text = fh.read()
             if "\x00" in text:
                 continue
+
+            # --- ZAMIAST POWOLNEGO VBA: BŁYSKAWICZNE PRZETWARZANIE W PYTHONIE ---
+            if remove_names:
+                # 1. Odpowiednik "ZamienLF" (pionowy tab -> nowa linia + twarda spacja)
+                text = text.replace("\x0b", "\n\xa0")
+
+                # 2. Odpowiednik wycinania kolumny od dołu (w Pythonie tniemy po linijkach)
+                lines = text.split("\n")
+                for i in range(2, len(lines)):
+                    if len(lines[i]) >= 62:  # 11 (StartUsun) + 51 (DlugoscUsun) = 62
+                        # Zostawiamy 10 pierwszych znaków i łączymy z resztą tekstu za nazwiskiem
+                        lines[i] = lines[i][:10] + lines[i][61:]
+                text = "\n".join(lines)
+
+                # 3. Odpowiedniki "Replace" (dokładnie jak w VBA)
+                text = text.replace('AGENCJA "C', 'AGENCJA "CEZAR"')
+                text = text.replace('Rejestr deli',
+                                    'Rejestr działek leśnych i gruntów do zalesienia wg. właścicieli')
+                text = text.replace('AGENCJA „CEZAR"EZAR"', 'AGENCJA "CEZAR"')
+                text = text.replace('AGENCJA', 'AGENCJA "CEZAR"')
+                text = text.replace('AGENCJA "CEZAR" "CEZAR"', 'AGENCJA "CEZAR"')
+                text = text.replace('Rejestr ieli',
+                                    'Rejestr działek leśnych i gruntów do zalesienia wg. właścicieli')
+                text = text.replace("Wskazania godspodarcze", " Wskazania gospodarcze")
+                text = re.sub(r'E\s*$', '', text)
+            # --------------------------------------------------------------------
+
             doc = Document()
+
+            # --- ZASTOSOWANIE MARGINESÓW DLA REJESTR1 ---
+            if "REJESTR1" in margin_config:
+                m = margin_config["REJESTR1"]
+                for section in doc.sections:
+                    section.top_margin = Cm(m[0])
+                    section.bottom_margin = Cm(m[1])
+                    section.left_margin = Cm(m[2])
+                    section.right_margin = Cm(m[3])
+            # --------------------------------------------
+
             doc.styles["Normal"].font.name = "Cascadia Code"
             doc.styles["Normal"].font.size = Pt(10)
             doc.styles["Normal"].element.rPr.rFonts.set(qn("w:eastAsia"), "Cascadia Code")
@@ -380,7 +434,19 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with open(f, "r", encoding=ENCODING, errors="replace") as fh:
                     text = fh.read()
+
                 doc = word.Documents.Add()
+
+                # --- ZASTOSOWANIE MARGINESÓW DLA POZOSTAŁYCH ---
+                f_upper = f.stem.upper()
+                if f_upper in margin_config:
+                    m = margin_config[f_upper]
+                    doc.PageSetup.TopMargin = 28.35 * m[0]
+                    doc.PageSetup.BottomMargin = 28.35 * m[1]
+                    doc.PageSetup.LeftMargin = 28.35 * m[2]
+                    doc.PageSetup.RightMargin = 28.35 * m[3]
+                # -----------------------------------------------
+
                 doc.Content.InsertAfter(text)
                 doc.Content.Font.Name = "Cascadia Code"
                 doc.Content.Font.Size = 10
@@ -419,15 +485,7 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
                 if target.exists():
                     doc = word.Documents.Open(str(target))
                     try:
-                        if remove_names:
-                            try:
-                                word.Run("ZamienLF")
-                            except:
-                                pass
-                            try:
-                                word.Run("UsunNazwiskaRej")
-                            except:
-                                pass
+                        # Wywołujemy już TYLKO przesunięcie (resztę odwalił Python w pamięci)
                         try:
                             word.Run("REJESTR_Z_PRZESUWANIEM")
                             time.sleep(0.5)
@@ -440,18 +498,54 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
                             print(
                                 f"  └─ Ostrzeżenie: Błąd makra REJESTR_Z_PRZESUWANIEM ({e})"
                             )
+
                         if remove_names:
                             try:
+                                # Ustawiamy globalnie wyrównanie tekstu, czcionkę 9 oraz parametry akapitu
+                                doc.Content.ParagraphFormat.Alignment = 1  # 1 = wdAlignParagraphCenter
                                 doc.Content.Font.Size = 9
-                                # Usunięto kod kasujący pierwszą stronę!
+
+                                # Opcje łamania i odstępów, z którymi normalnie radził sobie stary makro-kod ZamienLF
+                                doc.Content.ParagraphFormat.SpaceBefore = 0
+                                doc.Content.ParagraphFormat.SpaceAfter = 0
+                                doc.Content.ParagraphFormat.LineSpacingRule = 0  # 0 = wdLineSpaceSingle
+                                doc.Content.ParagraphFormat.WidowControl = True
+                                doc.Content.ParagraphFormat.KeepTogether = False
+                                doc.Content.ParagraphFormat.KeepWithNext = False
+                                doc.Content.ParagraphFormat.PageBreakBefore = False
                             except Exception as e:
                                 print(
-                                    f"  └─ Ostrzeżenie: Błąd podczas zmiany czcionki ({e})"
+                                    f"  └─ Ostrzeżenie: Błąd podczas zmiany formatowania ({e})"
                                 )
                         print(f"  └─ Zakończono: {target.parent.name}/{target.name}")
                     finally:
                         doc.Save()
                         doc.Close(SaveChanges=False)
+            # --- NAKŁADANIE MARGINESÓW NA SAMYM KOŃCU (PO WSZYSTKICH MAKRACH) ---
+            print(">>> Aplikowanie ostatecznych marginesów z konfiguracji...")
+            for f in files:
+                f_upper = f.stem.upper()
+                if f_upper in margin_config:
+                    ext = ".docx" if f_upper == "REJESTR1" else ".doc"
+                    rel_path = f.relative_to(in_dir)
+                    target = out_dir / rel_path.parent / f"{f.stem}{ext}"
+                    if target.exists():
+                        doc = None
+                        try:
+                            doc = word.Documents.Open(str(target))
+                            m = margin_config[f_upper]
+                            doc.PageSetup.TopMargin = 28.35 * m[0]
+                            doc.PageSetup.BottomMargin = 28.35 * m[1]
+                            doc.PageSetup.LeftMargin = 28.35 * m[2]
+                            doc.PageSetup.RightMargin = 28.35 * m[3]
+                            doc.Save()
+                            print(f"  └─ Ustawiono marginesy dla: {target.name}")
+                        except Exception as e:
+                            print(f"  └─ Ostrzeżenie: Błąd ustawiania marginesów ({target.name}): {e}")
+                        finally:
+                            if doc is not None:
+                                doc.Close(SaveChanges=False)
+            # --------------------------------------------------------------------
     finally:
         if word is not None:  # <--- Dodany warunek
             word.Quit()
@@ -489,7 +583,7 @@ def run_word_worker(in_dir_str, out_dir_str, remove_names, file_filter=None):
         time.sleep(0.2)
         pyautogui.press("up")
         time.sleep(0.3)
-        pyautogui.write("Courier New")
+        pyautogui.write("Cascadia Code")
         time.sleep(0.2)
         pyautogui.press("enter")
         time.sleep(0.5)
@@ -2774,6 +2868,59 @@ class ModernApp(ctk.CTk):
             self.running = False
             self.after(0, self.restore_all_buttons)
 
+    def _build_margins_ui(self, parent_frame, row_idx, mode_key):
+        if not hasattr(self, "margin_vars"):
+            self.margin_vars = {}
+        self.margin_vars[mode_key] = {}
+
+        font_label = ctk.CTkFont(family="Segoe UI", size=12, weight="bold")
+        font_entry = ctk.CTkFont(family="Segoe UI", size=11)
+
+        margin_frame = ctk.CTkFrame(parent_frame, fg_color="#1E1E1E", border_width=1, border_color="#333333")
+        margin_frame.grid(row=row_idx, column=0, columnspan=3, padx=15, pady=(5, 15), sticky="ew")
+
+        ctk.CTkLabel(margin_frame, text="Ustawienia marginesów (w cm):", font=font_label, text_color="#A0A0A0").grid(
+            row=0, column=0, columnspan=5, pady=(5, 5), sticky="w", padx=10)
+
+        headers = ["Typ pliku", "Góra", "Dół", "Lewo", "Prawo"]
+        for c, h in enumerate(headers):
+            ctk.CTkLabel(margin_frame, text=h, font=font_label, text_color="#0078D7").grid(row=1, column=c, padx=5,
+                                                                                           pady=(0, 5))
+
+        file_types = ["REJESTR1", "OPTAX", "TAB_KLW3", "WSKAZ1", "HALIZNY", "WYK_NEG", "OPIS", "ZEST1", "WK_ZM1"]
+
+        # --- ZMIANA: Pobranie zapisanych marginesów z pliku ---
+        saved_config = load_margins()
+        mode_saved = saved_config.get(mode_key, {})
+
+        for r, ftype in enumerate(file_types, start=2):
+            ctk.CTkLabel(margin_frame, text=ftype, font=font_entry).grid(row=r, column=0, padx=10, pady=2, sticky="w")
+
+            # Pobieramy konkretne wartości dla pliku, jeśli brak to stosujemy twarde domyślne
+            file_saved = mode_saved.get(ftype, {})
+            t_val = str(file_saved.get("T", "1.5"))
+            b_val = str(file_saved.get("B", "1.5"))
+            l_val = str(file_saved.get("L", "2.5"))
+            r_val = str(file_saved.get("R", "1.5"))
+
+            eT = ctk.CTkEntry(margin_frame, width=45, height=24, font=font_entry)
+            eT.insert(0, t_val)
+            eT.grid(row=r, column=1, padx=5, pady=2)
+
+            eB = ctk.CTkEntry(margin_frame, width=45, height=24, font=font_entry)
+            eB.insert(0, b_val)
+            eB.grid(row=r, column=2, padx=5, pady=2)
+
+            eL = ctk.CTkEntry(margin_frame, width=45, height=24, font=font_entry)
+            eL.insert(0, l_val)
+            eL.grid(row=r, column=3, padx=5, pady=2)
+
+            eR = ctk.CTkEntry(margin_frame, width=45, height=24, font=font_entry)
+            eR.insert(0, r_val)
+            eR.grid(row=r, column=4, padx=5, pady=2)
+
+            self.margin_vars[mode_key][ftype] = {"T": eT, "B": eB, "L": eL, "R": eR}
+
     # NOWA METODA: Konfiguracja UI dla Pełny Automat (STR_TYT + SKROTY)
     def _setup_all_extras(self, card_frame, row_idx):
         font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
@@ -2823,33 +2970,12 @@ class ModernApp(ctk.CTk):
             hover_color="#444444",
         ).grid(row=0, column=2, padx=(5, 10), pady=5)
 
-        ph_frame = ctk.CTkFrame(self.all_template_frame, fg_color="transparent")
-        ph_frame.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 5), padx=10)
-        ctk.CTkLabel(
-            ph_frame,
-            text="Zmienna wsi:",
-            font=ctk.CTkFont(size=11),
-            text_color="#A0A0A0",
-        ).pack(side="left", padx=(0, 5))
-        self.all_village_ph_entry = ctk.CTkEntry(ph_frame, height=28, width=120)
-        self.all_village_ph_entry.insert(0, "NAZWA WSI")
-        self.all_village_ph_entry.pack(side="left", padx=(0, 20))
-        ctk.CTkLabel(
-            ph_frame,
-            text="Zmienna pow.:",
-            font=ctk.CTkFont(size=11),
-            text_color="#A0A0A0",
-        ).pack(side="left", padx=(0, 5))
-        self.all_area_ph_entry = ctk.CTkEntry(ph_frame, height=28, width=120)
-        self.all_area_ph_entry.insert(0, "wielkość")
-        self.all_area_ph_entry.pack(side="left")
-
-        # 2. SKROTY Checkbox
-        self.all_gen_skroty_var = ctk.BooleanVar(value=False)
+        # 2. SKROTY - Zawsze włączone, opcjonalnie z własnego pliku
+        self.all_custom_skroty_var = ctk.BooleanVar(value=False)
         cb_skroty = ctk.CTkCheckBox(
             card_frame,
-            text="Dołącz 'Skróty i symbole' do każdego pakietu",
-            variable=self.all_gen_skroty_var,
+            text="Użyj własnego pliku 'Skróty i symbole' (zamiast domyślnego z programu)",
+            variable=self.all_custom_skroty_var,
             font=ctk.CTkFont(family="Segoe UI", size=12),
             command=self._toggle_all_skroty_ui,
         )
@@ -2867,22 +2993,24 @@ class ModernApp(ctk.CTk):
 
         ctk.CTkLabel(
             self.all_skroty_frame,
-            text="Plik (Word/PDF):",
+            text="Własny plik:",
             font=font_label,
             text_color="#E0E0E0",
         ).grid(row=0, column=0, padx=(10, 10), pady=8, sticky="w")
+
         self.all_skroty_entry = ctk.CTkEntry(
             self.all_skroty_frame,
-            placeholder_text="Wskaż plik ze skrótami...",
+            placeholder_text="Wskaż własny plik ze skrótami...",
             height=32,
         )
         self.all_skroty_entry.grid(row=0, column=1, padx=5, pady=8, sticky="ew")
+
         ctk.CTkButton(
             self.all_skroty_frame,
             text="Wybierz",
             command=lambda: self.select_file(
                 self.all_skroty_entry,
-                [("Wszystkie pliki", "*.*"), ("Word/PDF", "*.docx *.doc *.pdf")],
+                [("Word/PDF", "*.docx *.doc *.pdf"), ("Wszystkie pliki", "*.*")],
             ),
             width=90,
             height=32,
@@ -2892,6 +3020,9 @@ class ModernApp(ctk.CTk):
 
         self._toggle_all_template_ui()
         self._toggle_all_skroty_ui()
+
+        # --- DODANA TABELA MARGINESÓW ---
+        self._build_margins_ui(card_frame, row_idx + 4, "ALL")
 
     def _toggle_all_template_ui(self):
         state = (
@@ -2914,18 +3045,13 @@ class ModernApp(ctk.CTk):
                             pass
 
     def _toggle_all_skroty_ui(self):
-        state = (
-            "normal"
-            if getattr(self, "all_gen_skroty_var", None)
-               and self.all_gen_skroty_var.get()
-            else "disabled"
-        )
-        if hasattr(self, "all_skroty_frame"):
-            for child in self.all_skroty_frame.winfo_children():
-                try:
-                    child.configure(state=state)
-                except:
-                    pass
+        if getattr(self, "all_custom_skroty_var", None) and getattr(self, "all_skroty_frame", None):
+            if self.all_custom_skroty_var.get():
+                # Jeśli checkbox jest zaznaczony, przywracamy ramkę z powrotem na ekran
+                self.all_skroty_frame.grid()
+            else:
+                # Jeśli checkbox jest odznaczony, całkowicie ukrywamy ramkę
+                self.all_skroty_frame.grid_remove()
 
     def setup_tab(
             self,
@@ -3120,6 +3246,9 @@ class ModernApp(ctk.CTk):
             options_frame,
             "Możesz zaznaczyć wiele typów plików naraz. Opcja 'Wszystkie' wyklucza pozostałe.",
         )
+
+        # --- DODANA TABELA MARGINESÓW ---
+        self._build_margins_ui(card_frame, row_idx + 1, "WORD")
 
     def on_word_filter_change(self, changed_option):
         if not getattr(self, "word_filter_vars", None):
@@ -3380,26 +3509,15 @@ class ModernApp(ctk.CTk):
             row=3, column=1, padx=10, pady=8, sticky="ew"
         )
 
-        ctk.CTkLabel(card, text="Nazwa wsi:", font=font_label).grid(
-            row=3, column=2, padx=15, pady=8, sticky="e"
+        self.tpl_data[mode_key]["single_village_var"] = ctk.BooleanVar(value=False)
+        cb_single = ctk.CTkCheckBox(
+            card,
+            text="Stwórz stronę dla konkretnej wsi",
+            variable=self.tpl_data[mode_key]["single_village_var"],
+            command=lambda: self._toggle_single_village(mode_key)
         )
-        self.tpl_data[mode_key]["village_entry"] = ctk.CTkEntry(card, height=32)
-        self.tpl_data[mode_key]["village_entry"].insert(0, "NAZWA WSI")
-        self.tpl_data[mode_key]["village_entry"].grid(
-            row=3, column=3, padx=15, pady=8, sticky="ew"
-        )
+        cb_single.grid(row=3, column=2, columnspan=2, padx=15, pady=8, sticky="w")
 
-        ctk.CTkLabel(card, text="Powierzchnia:", font=font_label).grid(
-            row=4, column=0, padx=15, pady=8, sticky="e"
-        )
-        self.tpl_data[mode_key]["area_entry"] = ctk.CTkEntry(card, height=32)
-        self.tpl_data[mode_key]["area_entry"].insert(0, "wielkość")
-        self.tpl_data[mode_key]["area_entry"].grid(
-            row=4, column=1, padx=10, pady=8, sticky="ew"
-        )
-        self.tpl_data[mode_key]["area_entry"].bind(
-            "<KeyRelease>", lambda e: self._sync_area_row_state(mode_key)
-        )
         self.tpl_data[mode_key]["area_var"] = ctk.BooleanVar(value=True)
         cb_area = ctk.CTkCheckBox(
             card,
@@ -3407,16 +3525,31 @@ class ModernApp(ctk.CTk):
             variable=self.tpl_data[mode_key]["area_var"],
             command=lambda: self._sync_area_row_state(mode_key),
         )
-        cb_area.grid(row=4, column=2, columnspan=2, padx=15, pady=8, sticky="w")
+        cb_area.grid(row=4, column=0, columnspan=2, padx=15, pady=8, sticky="w")
+
+        self.tpl_data[mode_key]["lbl_village"] = ctk.CTkLabel(card, text="Nazwa wsi:", font=font_label)
+        self.tpl_data[mode_key]["village_entry"] = ctk.CTkEntry(card, height=32)
+        self.tpl_data[mode_key]["village_entry"].insert(0, "NAZWA WSI")
+
+        self.tpl_data[mode_key]["lbl_village"].grid(row=5, column=0, padx=15, pady=8, sticky="e")
+        self.tpl_data[mode_key]["village_entry"].grid(row=5, column=1, padx=10, pady=8, sticky="ew")
+
+        self.tpl_data[mode_key]["lbl_area"] = ctk.CTkLabel(card, text="Powierzchnia:", font=font_label)
+        self.tpl_data[mode_key]["area_entry"] = ctk.CTkEntry(card, height=32)
+        self.tpl_data[mode_key]["area_entry"].insert(0, "wielkość")
+        self.tpl_data[mode_key]["area_entry"].bind("<KeyRelease>", lambda e: self._sync_area_row_state(mode_key))
+
+        self.tpl_data[mode_key]["lbl_area"].grid(row=5, column=2, padx=15, pady=8, sticky="e")
+        self.tpl_data[mode_key]["area_entry"].grid(row=5, column=3, padx=15, pady=8, sticky="ew")
 
         ctk.CTkLabel(
             card, text="Zapisz szablon jako:", font=font_label, text_color="#E0E0E0"
-        ).grid(row=5, column=0, padx=15, pady=(15, 20), sticky="e")
+        ).grid(row=6, column=0, padx=15, pady=(15, 20), sticky="e")
         self.tpl_data[mode_key]["output_entry"] = ctk.CTkEntry(
             card, placeholder_text="Ścieżka do pliku np. Szablon.docx", height=32
         )
         self.tpl_data[mode_key]["output_entry"].grid(
-            row=5, column=1, columnspan=2, padx=10, pady=(15, 20), sticky="ew"
+            row=6, column=1, columnspan=2, padx=10, pady=(15, 20), sticky="ew"
         )
         btn_browse = ctk.CTkButton(
             card,
@@ -3430,7 +3563,7 @@ class ModernApp(ctk.CTk):
                 self.tpl_data[m]["output_entry"]
             ),
         )
-        btn_browse.grid(row=5, column=3, padx=15, pady=(15, 20), sticky="w")
+        btn_browse.grid(row=6, column=3, padx=15, pady=(15, 20), sticky="w")
 
         self.tpl_data[mode_key]["btn_gen"] = ctk.CTkButton(
             scroll_frame,
@@ -3446,6 +3579,9 @@ class ModernApp(ctk.CTk):
         self.tpl_data[mode_key]["btn_gen"].grid(
             row=1, column=0, pady=(5, 10), sticky="ew"
         )
+
+        # Wywołujemy ukrycie pól na start
+        self._toggle_single_village(mode_key)
         self._sync_area_row_state(mode_key)
 
     def generate_template_now(self, mode_key):
@@ -3457,8 +3593,16 @@ class ModernApp(ctk.CTk):
         woj = vars_dict["woj_var"].get().strip().upper()
         stan_na = vars_dict["stan_na_entry"].get().strip()
         okres = vars_dict["okres_entry"].get().strip()
-        village = vars_dict["village_entry"].get().strip().upper() or "NAZWA WSI"
-        area_text = vars_dict["area_entry"].get().strip()
+
+        # --- NOWA LOGIKA DLA WSI I POWIERZCHNI ---
+        if vars_dict.get("single_village_var") and vars_dict["single_village_var"].get():
+            village = vars_dict["village_entry"].get().strip().upper() or "NAZWA WSI"
+            area_text = vars_dict["area_entry"].get().strip() if vars_dict["area_var"].get() else ""
+        else:
+            village = "NAZWA WSI"
+            area_text = "wielkość" if vars_dict["area_var"].get() else ""
+        # ------------------------------------------
+
         out_path = vars_dict["output_entry"].get().strip()
         if not out_path:
             messagebox.showwarning(
@@ -3485,7 +3629,7 @@ class ModernApp(ctk.CTk):
         out_path = str(out_path_obj.with_name(file_name))
         vars_dict["output_entry"].delete(0, "end")
         vars_dict["output_entry"].insert(0, out_path)
-        sample_name = "STR_TYT.docx"
+        sample_name = "Szablon STR_TYT.docx"  # Zmienione na Twoją nową nazwę pliku bazowego
         sample_path = get_resource_path(sample_name)
         if not sample_path.exists():
             messagebox.showerror(
@@ -3524,7 +3668,7 @@ class ModernApp(ctk.CTk):
                 )
             doc.save(out_path)
             self.last_output_dir = Path(out_path).parent
-            self.open_dir_btn.configure(state="normal")  # <--- DODANA LINIJKA
+            self.open_dir_btn.configure(state="normal")
             self.log(
                 f"[KREATOR SZABLONU] Zapisano nowy szablon bazowy na podstawie wzorca: {out_path}"
             )
@@ -3585,20 +3729,44 @@ class ModernApp(ctk.CTk):
                         tr = row._tr
                         tr.getparent().remove(tr)
 
+    def _toggle_single_village(self, mode_key):
+        vars_dict = self.tpl_data[mode_key]
+        if vars_dict["single_village_var"].get():
+            vars_dict["lbl_village"].grid()
+            vars_dict["village_entry"].grid()
+            if vars_dict["area_var"].get():
+                vars_dict["lbl_area"].grid()
+                vars_dict["area_entry"].grid()
+        else:
+            vars_dict["lbl_village"].grid_remove()
+            vars_dict["village_entry"].grid_remove()
+            vars_dict["lbl_area"].grid_remove()
+            vars_dict["area_entry"].grid_remove()
+
     def _sync_area_row_state(self, mode_key):
         vars_dict = self.tpl_data[mode_key]
         if "area_entry" not in vars_dict:
             return
+
         state = "normal" if vars_dict["area_var"].get() else "disabled"
         try:
             vars_dict["area_entry"].configure(state=state)
         except Exception:
             pass
+
         if not vars_dict["area_var"].get():
             try:
                 vars_dict["area_entry"].delete(0, tk.END)
             except Exception:
                 pass
+
+        if vars_dict.get("single_village_var") and vars_dict["single_village_var"].get():
+            if vars_dict["area_var"].get():
+                vars_dict["lbl_area"].grid()
+                vars_dict["area_entry"].grid()
+            else:
+                vars_dict["lbl_area"].grid_remove()
+                vars_dict["area_entry"].grid_remove()
 
     def _toggle_global_font_size(self):
         """Włącza/wyłącza globalne ustawienie czcionki i zarządza stanem pól"""
@@ -4268,7 +4436,7 @@ class ModernApp(ctk.CTk):
         card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
         card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
-            card, text="Plik bazowy (.docx):", font=font_label, text_color="#E0E0E0"
+            card, text="Szablon STR_TYT:", font=font_label, text_color="#E0E0E0"
         ).grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
         self.mietek_title_template_entry = ctk.CTkEntry(
             card, placeholder_text="Wskaż plik bazowy", height=36
@@ -4331,29 +4499,12 @@ class ModernApp(ctk.CTk):
             fg_color="#333333",
             hover_color="#444444",
         ).grid(row=2, column=2, padx=15, pady=8)
-        ctk.CTkLabel(
-            card,
-            text="Zmienna dla nazwy obrębu:",
-            font=font_label,
-            text_color="#A0A0A0",
-        ).grid(row=3, column=0, padx=15, pady=8, sticky="w")
-        self.mietek_title_village_placeholder_entry = ctk.CTkEntry(
-            card, placeholder_text="Np. AMELIN", height=36
-        )
-        self.mietek_title_village_placeholder_entry.grid(
-            row=3, column=1, padx=5, pady=8, sticky="ew"
-        )
+        # Zmienne wczytywane w tle - ukryte w GUI
+        self.mietek_title_village_placeholder_entry = ctk.CTkEntry(card)
         self.mietek_title_village_placeholder_entry.insert(0, "NAZWA WSI")
-        ctk.CTkLabel(
-            card, text="Zmienna dla powierzchni:", font=font_label, text_color="#A0A0A0"
-        ).grid(row=4, column=0, padx=15, pady=(8, 15), sticky="w")
-        self.mietek_title_area_placeholder_entry = ctk.CTkEntry(
-            card, placeholder_text="Np. powierzchnia", height=36
-        )
-        self.mietek_title_area_placeholder_entry.grid(
-            row=4, column=1, padx=5, pady=(8, 15), sticky="ew"
-        )
-        self.mietek_title_area_placeholder_entry.insert(0, "powierzchnia")
+
+        self.mietek_title_area_placeholder_entry = ctk.CTkEntry(card)
+        self.mietek_title_area_placeholder_entry.insert(0, "wielkość")
         self.mietek_title_generate_btn = ctk.CTkButton(
             scroll_frame,
             text="Masowo twórz strony STR_TYT",
@@ -4389,7 +4540,7 @@ class ModernApp(ctk.CTk):
         card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
         card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(
-            card, text="Plik bazowy (.docx):", font=font_label, text_color="#E0E0E0"
+            card, text="Szablon STR_TYT:", font=font_label, text_color="#E0E0E0"
         ).grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
         self.title_template_entry = ctk.CTkEntry(
             card,
@@ -4450,29 +4601,12 @@ class ModernApp(ctk.CTk):
             fg_color="#333333",
             hover_color="#444444",
         ).grid(row=2, column=2, padx=15, pady=8)
-        ctk.CTkLabel(
-            card,
-            text="Zmienna dla nazwy obrębu:",
-            font=font_label,
-            text_color="#A0A0A0",
-        ).grid(row=3, column=0, padx=15, pady=8, sticky="w")
-        self.title_village_placeholder_entry = ctk.CTkEntry(
-            card, placeholder_text="Np. AMELIN", height=36
-        )
-        self.title_village_placeholder_entry.grid(
-            row=3, column=1, padx=5, pady=8, sticky="ew"
-        )
+        # Zmienne wczytywane w tle - ukryte w GUI
+        self.title_village_placeholder_entry = ctk.CTkEntry(card)
         self.title_village_placeholder_entry.insert(0, "NAZWA WSI")
-        ctk.CTkLabel(
-            card, text="Zmienna dla powierzchni:", font=font_label, text_color="#A0A0A0"
-        ).grid(row=4, column=0, padx=15, pady=(8, 15), sticky="w")
-        self.title_area_placeholder_entry = ctk.CTkEntry(
-            card, placeholder_text="Np. powierzchnia", height=36
-        )
-        self.title_area_placeholder_entry.grid(
-            row=4, column=1, padx=5, pady=(8, 15), sticky="ew"
-        )
-        self.title_area_placeholder_entry.insert(0, "powierzchnia")
+
+        self.title_area_placeholder_entry = ctk.CTkEntry(card)
+        self.title_area_placeholder_entry.insert(0, "wielkość")
         self.title_generate_btn = ctk.CTkButton(
             scroll_frame,
             text="Masowo twórz strony STR_TYT",
@@ -5145,9 +5279,35 @@ class ModernApp(ctk.CTk):
         self._disable_ui_for_process()
         self.log(f"[{mode}] URUCHOMIENIE ZADANIA\nZ: {src_path}\nDo: {dst_path}")
         self.set_progress(0)
+
+        # Pobieranie i zapis marginesów
+        margins_dict = {}
+        if mode in ["ALL", "WORD"] and hasattr(self, "margin_vars") and mode in self.margin_vars:
+            saved_config = load_margins()  # Odczytujemy stary plik, żeby nie nadpisać układu drugiej zakładki
+            if mode not in saved_config:
+                saved_config[mode] = {}
+
+            for ftype, entries in self.margin_vars[mode].items():
+                try:
+                    t = float(entries["T"].get().replace(',', '.'))
+                    b = float(entries["B"].get().replace(',', '.'))
+                    l = float(entries["L"].get().replace(',', '.'))
+                    r = float(entries["R"].get().replace(',', '.'))
+                    margins_dict[ftype] = [t, b, l, r]
+
+                    # Wrzucamy do struktury do zapisania na dysku
+                    saved_config[mode][ftype] = {"T": t, "B": b, "L": l, "R": r}
+                except ValueError:
+                    messagebox.showwarning("Błąd", f"Marginesy dla {ftype} muszą być liczbami (np. 1.5).")
+                    self.restore_all_buttons()
+                    return
+
+            # Zapis całego słownika z marginesami na dysk
+            save_margins(saved_config)
+
         threading.Thread(
             target=self.run_logic_thread,
-            args=(src_path, dst_path, mode, remove_names_flag),
+            args=(src_path, dst_path, mode, remove_names_flag, margins_dict),
             daemon=True,
         ).start()
 
@@ -5778,7 +5938,7 @@ class ModernApp(ctk.CTk):
 
         return count
 
-    def run_logic_thread(self, src_str, out_str, mode, remove_names):
+    def run_logic_thread(self, src_str, out_str, mode, remove_names, margins_dict=None):
         # --- INICJALIZACJA ZMIENNYCH ---
         in_root = None
         out_root = None
@@ -5810,7 +5970,7 @@ class ModernApp(ctk.CTk):
 
                 self.update_dashboard(1, "running", "Kompilacja...")
                 self.check_stop()
-                self.task_word_processing_subprocess(dir_01, dir_02, remove_names)
+                self.task_word_processing_subprocess(dir_01, dir_02, remove_names, margins_dict=margins_dict)
                 self.update_dashboard(1, "done", "Gotowe")
                 self.set_progress(0.30)
 
@@ -5823,8 +5983,8 @@ class ModernApp(ctk.CTk):
                         "Generowanie stron tytułowych (STR_TYT)...", "#0078D7"
                     )
                     template_path = self.all_template_entry.get().strip()
-                    v_ph = self.all_village_ph_entry.get().strip() or "NAZWA WSI"
-                    a_ph = self.all_area_ph_entry.get().strip() or "powierzchnia"
+                    v_ph = "NAZWA WSI"
+                    a_ph = "wielkość"
                     if template_path and Path(template_path).exists():
                         self.task_generate_str_tyt(dir_02, template_path, v_ph, a_ph)
                     else:
@@ -5839,22 +5999,27 @@ class ModernApp(ctk.CTk):
                 self.update_dashboard(2, "done", f"{c3} plików")
                 self.set_progress(0.60)
 
-                # === WSTRZYKIWANIE SKROTÓW ===
-                if (
-                        getattr(self, "all_gen_skroty_var", None)
-                        and self.all_gen_skroty_var.get()
-                ):
-                    self.update_status(
-                        "Dołączanie 'Skrótów i symboli' do pakietów...", "#0078D7"
-                    )
+                # === WSTRZYKIWANIE SKROTÓW (ZAWSZE WŁĄCZONE) ===
+                self.update_status("Dołączanie 'Skrótów i symboli' do pakietów...", "#0078D7")
+
+                skroty_path = None
+                # Sprawdzamy, czy użytkownik chce użyć własnego pliku
+                if getattr(self, "all_custom_skroty_var", None) and self.all_custom_skroty_var.get():
                     skroty_path = self.all_skroty_entry.get().strip()
-                    if skroty_path and Path(skroty_path).exists():
-                        c_skroty = self.task_inject_skroty(dir_03, skroty_path)
-                        self.log(f"[SKROTY] Dodano plik do {c_skroty} folderów wsi.")
-                    else:
-                        self.log(
-                            "[UWAGA] Zaznaczono dodawanie skrótów, ale nie podano prawidłowego pliku. Pomijam."
-                        )
+                else:
+                    # Pobieranie domyślnego pliku z zasobów programu w tle
+                    domyslne = get_resource_path("skroty.pdf")
+                    if not domyslne.exists():
+                        domyslne = get_resource_path("skroty.docx")
+                    if domyslne.exists():
+                        skroty_path = str(domyslne)
+
+                # Przystępujemy do dołączenia pliku
+                if skroty_path and Path(skroty_path).exists():
+                    c_skroty = self.task_inject_skroty(dir_03, skroty_path)
+                    self.log(f"[SKROTY] Dodano plik do {c_skroty} folderów wsi.")
+                else:
+                    self.log("[UWAGA] Nie znaleziono pliku ze skrótami (ani domyślnego, ani własnego). Pomijam.")
 
                 self.update_dashboard(3, "running", "Scalanie...")
                 self.check_stop()
@@ -5883,7 +6048,7 @@ class ModernApp(ctk.CTk):
                     "#0078D7",
                 )
                 self.task_word_processing_subprocess(
-                    dir_01, dir_02, remove_names, file_filter
+                    dir_01, dir_02, remove_names, file_filter, margins_dict=margins_dict
                 )
 
             elif mode == "PDF":
@@ -7687,7 +7852,7 @@ class ModernApp(ctk.CTk):
         return count
 
     def task_word_processing_subprocess(
-            self, in_dir, out_dir, remove_names, file_filter=None
+            self, in_dir, out_dir, remove_names, file_filter=None, margins_dict=None
     ):
         worker_script = os.path.abspath(__file__)
         python_exe = sys.executable
@@ -7698,10 +7863,21 @@ class ModernApp(ctk.CTk):
             if "WSZYSTKIE" in selected_filters
             else "".join(f' --filter "{flt}"' for flt in sorted(selected_filters))
         )
+
+        # Zapis margins_dict do tymczasowego JSONa
+        margins_file_path = ""
+        if margins_dict:
+            m_fd, margins_file_path = tempfile.mkstemp(suffix=".json")
+            os.close(m_fd)
+            with open(margins_file_path, "w", encoding="utf-8") as mf:
+                json.dump(margins_dict, mf)
+        margins_flag = f' --margins-file "{margins_file_path}"' if margins_file_path else ""
+
         log_fd, log_path = tempfile.mkstemp(suffix=".log")
         os.close(log_fd)
+
         cmd_base = f'"{python_exe}" -u "{worker_script}" --word-worker "{str(in_dir).rstrip(r"/")}" "{str(out_dir).rstrip(r"/")}" --log-file "{log_path}"'
-        bat_content = f"@echo off\nchcp 65001 >nul\nset PYTHONIOENCODING=utf-8\nset PYTHONUNBUFFERED=1\n{cmd_base}{remove_flag}{filter_flag}\nexit /b %errorlevel%\n"
+        bat_content = f"@echo off\nchcp 65001 >nul\nset PYTHONIOENCODING=utf-8\nset PYTHONUNBUFFERED=1\n{cmd_base}{remove_flag}{filter_flag}{margins_flag}\nexit /b %errorlevel%\n"
         with tempfile.NamedTemporaryFile(
                 "w", suffix=".bat", delete=False, encoding="utf-8"
         ) as bat_file:
@@ -8243,9 +8419,18 @@ if __name__ == "__main__":
 
             file_filter = []
             idx_scan = 0
+            margins_config = {}
             while idx_scan < len(sys.argv):
                 if sys.argv[idx_scan] == "--filter" and idx_scan + 1 < len(sys.argv):
                     file_filter.append(sys.argv[idx_scan + 1])
+                    idx_scan += 2
+                    continue
+                if sys.argv[idx_scan] == "--margins-file" and idx_scan + 1 < len(sys.argv):
+                    try:
+                        with open(sys.argv[idx_scan + 1], 'r', encoding='utf-8') as mf:
+                            margins_config = json.load(mf)
+                    except:
+                        pass
                     idx_scan += 2
                     continue
                 idx_scan += 1
@@ -8253,7 +8438,7 @@ if __name__ == "__main__":
             if not file_filter:
                 file_filter = ["Wszystkie"]
 
-            run_word_worker(in_dir, out_dir, remove_names, file_filter)
+            run_word_worker(in_dir, out_dir, remove_names, file_filter, margins_config)
 
         except Exception as e:
             # Wychwytujemy WSZYSTKIE błędy procesu w tle i zapisujemy je do logu!
