@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.4.2"
+CURRENT_VERSION = "v1.4.1"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1430,18 +1430,23 @@ def wykonaj_makro_vba(df_out, df_braki, tylko_wyrownywanie=False):
     df['font_color'] = ""
     TOLERANCJA = 0.0010
 
-    # 1. WARTOŚCI (bez żadnych kolorów tła - te ustawiamy dopiero w pętli 4 i 3)
-    for dz, group in df.groupby('nr_dz', sort=False):
-        suma_geo = group['pow geo'].sum()
+    # 1. WARTOŚCI (bez żadnych kolorów tła)
+    # Zmieniamy grupowanie z samego 'nr_dz' na ['nr_dz', 'J. rej.'] aby współwłaściciele nie wpływali na siebie
+    for (dz, j_rej), group in df.groupby(['nr_dz', 'J. rej.'], sort=False, dropna=False):
+        # Zabezpieczenie przed dublami: sumujemy unikalne kontury, by uniknąć inflacji powierzchni
+        unikalne_geo = group.drop_duplicates(subset=['litery'])
+        suma_geo = unikalne_geo['pow geo'].sum()
+
         pow_ewid = group['pow ls'].iloc[0]
         pow_docelowa = group['pow dz'].iloc[0]
         is_new_forest = pd.isna(pow_ewid) or str(pow_ewid).strip() == ""
-        # czerwony TEKST = w kolumnie I (pow ls) nie ma wartości
         df_font = 'FF0000' if is_new_forest else '000000'
-        nadmiar_sciezka = pd.notna(pow_ewid) and suma_geo > (float(pow_ewid) + 0.1)
 
+        # Checkbox: Wymuszenie wyrównania blokuje tworzenie nadmiarów (zielonych działek)
         if tylko_wyrownywanie:
-            nadmiar_sciezka = False  # Wymuszenie proporcjonalnego wyrównania do LS
+            nadmiar_sciezka = False
+        else:
+            nadmiar_sciezka = pd.notna(pow_ewid) and suma_geo > (float(pow_ewid) + 0.1)
 
         suma_przepisanych = 0.0
 
@@ -1450,14 +1455,10 @@ def wykonaj_makro_vba(df_out, df_braki, tylko_wyrownywanie=False):
             df.at[idx, 'font_color'] = df_font
 
             if is_new_forest:
-                # nowy las (brak ewidencji LS) -> pełna geodezja
                 df.at[idx, 'TU POWSTANĄ DANE'] = aktualna_pow
                 continue
 
             if nadmiar_sciezka:
-                # suma geo > ewidencja LS  ->  NIE przeliczamy proporcjonalnie do LS,
-                # tylko bierzemy pełną geodezję, ograniczoną od góry przez pow dz.
-                # (dzieki temu dzialka "przybyla" trafia do PRZYBYLO z pelna wartoscia)
                 if pd.notna(pow_docelowa):
                     reszta = float(pow_docelowa) - suma_przepisanych
                     if reszta > 0:
@@ -1465,13 +1466,10 @@ def wykonaj_makro_vba(df_out, df_braki, tylko_wyrownywanie=False):
                         df.at[idx, 'TU POWSTANĄ DANE'] = round(wartosc, 4)
                         suma_przepisanych += wartosc
                     else:
-                        # kontur nie zmiescil sie w pow dz (nadmiar ponad dzialke) -> 0
                         df.at[idx, 'TU POWSTANĄ DANE'] = 0.0000
                 else:
-                    # brak pow dz (brak górnego limitu) -> pełna geodezja
                     df.at[idx, 'TU POWSTANĄ DANE'] = aktualna_pow
             else:
-                # suma geo <= ewidencja LS -> standardowe przeliczenie proporcjonalne
                 if pd.notna(pow_ewid) and suma_geo != 0:
                     nowa = (aktualna_pow / suma_geo) * float(pow_ewid)
                     zaokr = round(nowa, 4)
@@ -1479,12 +1477,12 @@ def wykonaj_makro_vba(df_out, df_braki, tylko_wyrownywanie=False):
                 else:
                     df.at[idx, 'TU POWSTANĄ DANE'] = aktualna_pow
 
-    # 2. DOCIĄGANIE RÓŻNIC ZAOKRĄGLEŃ (bez koloru)
-    for dz, group in df.groupby('nr_dz', sort=False):
+    # 2. DOCIĄGANIE RÓŻNIC ZAOKRĄGLEŃ
+    for (dz, j_rej), group in df.groupby(['nr_dz', 'J. rej.'], sort=False, dropna=False):
         pow_ewid = group['pow ls'].iloc[0]
         pow_docelowa = group['pow dz'].iloc[0]
-        mask = df['nr_dz'] == dz
-        valid_indices = df[mask & df['TU POWSTANĄ DANE'].notna()].index
+
+        valid_indices = group[group['TU POWSTANĄ DANE'].notna()].index
         if len(valid_indices) == 0:
             continue
         suma_f = df.loc[valid_indices, 'TU POWSTANĄ DANE'].sum()
@@ -1504,7 +1502,7 @@ def wykonaj_makro_vba(df_out, df_braki, tylko_wyrownywanie=False):
             df.at[ostatni_wiersz, 'TU POWSTANĄ DANE'] = round(
                 df.at[ostatni_wiersz, 'TU POWSTANĄ DANE'] + roznica, 4)
 
-    # 3. SZUM -> RÓŻOWY (do weryfikacji) / usunięcie śmieci bez ewidencji
+    # 3. SZUM -> RÓŻOWY
     rows_to_drop = []
     for idx in df.index:
         val = df.at[idx, 'TU POWSTANĄ DANE']
@@ -1517,54 +1515,54 @@ def wykonaj_makro_vba(df_out, df_braki, tylko_wyrownywanie=False):
     if rows_to_drop:
         df = df.drop(index=rows_to_drop)
 
-    # 4. PRZYBYŁO / UBYŁO  +  ZIELONE TŁO dla działek, które "przybyły"
+    # 4. PRZYBYŁO / UBYŁO
     przybylo_data = []
     ubylo_data = []
-    for dz, group in df.groupby('nr_dz', sort=False):
-        mask = df['nr_dz'] == dz
-        valid_indices = df[mask & df['TU POWSTANĄ DANE'].notna()].index
-        suma_f = df.loc[valid_indices, 'TU POWSTANĄ DANE'].sum() if len(valid_indices) > 0 else 0.0
-        pow_ewid = group['pow ls'].iloc[0]
-        pow_docelowa = group['pow dz'].iloc[0]
-        j_rej = group['J. rej.'].iloc[0] if 'J. rej.' in group.columns else ""
-        startowy_las = float(pow_ewid) if (pd.notna(pow_ewid) and str(pow_ewid).strip() != "") else 0.0
-        roznica = round(suma_f - startowy_las, 4)
-        if roznica > 0:
-            # ZIELONE TŁO = działka przybyła (różowego szumu nie nadpisujemy)
-            for idx in valid_indices:
-                if df.at[idx, 'bg_color'] != 'FFB6C1':
-                    df.at[idx, 'bg_color'] = '00FF00'
-            przybylo_data.append({
-                'J. rej.': j_rej, 'nr działki': dz,
-                'aktualna pow ls': round(suma_f, 4), 'ls ewidenca': startowy_las,
-                'ile przybyło': roznica,
-                'pow dz': pow_docelowa if pd.notna(pow_docelowa) else ""
-            })
-        elif roznica < 0:
-            ubylo_data.append({
-                'J. rej.': j_rej, 'nr działki': dz,
-                'aktualna pow ls': round(suma_f, 4), 'ls ewidenca': startowy_las,
-                'ile ubyło': roznica,
-                'pow dz': pow_docelowa if pd.notna(pow_docelowa) else ""
-            })
 
-    if not df_braki.empty and not tylko_wyrownywanie:
-        for _, row in df_braki.iterrows():
-            if '[OP]' not in str(row.get('właściciel', '')):
-                pow_ewid = row.get('pow ls', np.nan)
-                pow_doc = row.get('pow dz', np.nan)
-                j_rej = row.get('J. rej.', "")
-                if pd.notna(pow_ewid) and float(pow_ewid) > 0:
-                    ubylo_data.append({
-                        'J. rej.': j_rej, 'nr działki': row.get('nr_dz', ''),
-                        'aktualna pow ls': 0.0, 'ls ewidenca': pow_ewid,
-                        'ile ubyło': -float(pow_ewid),
-                        'pow dz': pow_doc if pd.notna(pow_doc) else ""
-                    })
+    # Checkbox wymusza, by ominąć generowanie arkuszy UBYŁO/PRZYBYŁO i nie mazać na zielono
+    if not tylko_wyrownywanie:
+        for dz, group in df.groupby('nr_dz', sort=False):
+            # Unikalne kontury dla całej działki, aby uniknąć zdublowania sumy
+            unikalne_geo = group.drop_duplicates(subset=['litery'])
+            suma_f = unikalne_geo['TU POWSTANĄ DANE'].sum() if not unikalne_geo.empty else 0.0
 
-    if tylko_wyrownywanie:
-        przybylo_data = []
-        ubylo_data = []
+            pow_ewid = group['pow ls'].iloc[0]
+            pow_docelowa = group['pow dz'].iloc[0]
+            j_rej = group['J. rej.'].iloc[0] if 'J. rej.' in group.columns else ""
+            startowy_las = float(pow_ewid) if (pd.notna(pow_ewid) and str(pow_ewid).strip() != "") else 0.0
+            roznica = round(suma_f - startowy_las, 4)
+
+            if roznica > 0:
+                for idx in group.index:
+                    if df.at[idx, 'bg_color'] != 'FFB6C1' and pd.notna(df.at[idx, 'TU POWSTANĄ DANE']):
+                        df.at[idx, 'bg_color'] = '00FF00'
+                przybylo_data.append({
+                    'J. rej.': j_rej, 'nr działki': dz,
+                    'aktualna pow ls': round(suma_f, 4), 'ls ewidenca': startowy_las,
+                    'ile przybyło': roznica,
+                    'pow dz': pow_docelowa if pd.notna(pow_docelowa) else ""
+                })
+            elif roznica < 0:
+                ubylo_data.append({
+                    'J. rej.': j_rej, 'nr działki': dz,
+                    'aktualna pow ls': round(suma_f, 4), 'ls ewidenca': startowy_las,
+                    'ile ubyło': roznica,
+                    'pow dz': pow_docelowa if pd.notna(pow_docelowa) else ""
+                })
+
+        if not df_braki.empty:
+            for _, row in df_braki.iterrows():
+                if '[OP]' not in str(row.get('właściciel', '')):
+                    pow_ewid = row.get('pow ls', np.nan)
+                    pow_doc = row.get('pow dz', np.nan)
+                    j_rej = row.get('J. rej.', "")
+                    if pd.notna(pow_ewid) and float(pow_ewid) > 0:
+                        ubylo_data.append({
+                            'J. rej.': j_rej, 'nr działki': row.get('nr_dz', ''),
+                            'aktualna pow ls': 0.0, 'ls ewidenca': pow_ewid,
+                            'ile ubyło': -float(pow_ewid),
+                            'pow dz': pow_doc if pd.notna(pow_doc) else ""
+                        })
 
     return df, pd.DataFrame(przybylo_data), pd.DataFrame(ubylo_data)
 
@@ -2588,10 +2586,19 @@ class ModernApp(ctk.CTk):
 
         self.rozl_tylko_wyrownywanie_var = ctk.BooleanVar(value=False)
         ctk.CTkCheckBox(
-            card, text="Wymuś wyrównanie do ewidencji Ls (nie twórz arkuszy PRZYBYŁO/UBYŁO, zostaw tylko szumy)",
-            variable=self.rozl_tylko_wyrownywanie_var,
-            font=ctk.CTkFont(family="Segoe UI", size=12), fg_color="#0067C0", hover_color="#005A9E"
-        ).grid(row=4, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+            card, text="Wymuś proporcjonalne wyrównanie do ewidencji Ls (nie twórz arkuszy PRZYBYŁO/UBYŁO)",
+            variable=self.rozl_tylko_wyrownywanie_var, font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="#0067C0", hover_color="#005A9E"
+        ).grid(row=4, column=0, columnspan=3, padx=15, pady=(0, 5), sticky="w")
+
+        # --- NOWY CHECKBOX ---
+        self.rozl_usun_puste_jrej_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            card, text="Usuń wiersze jeśli brakuje wartości w J. rej. (usuwanie wydzieleń bez właścicieli)",
+            variable=self.rozl_usun_puste_jrej_var, font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="#8B0000", hover_color="#A52A2A"
+        ).grid(row=5, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+        # ---------------------
 
         self.rozl_start_btn = ctk.CTkButton(
             scroll_frame, text="Uruchom rozliczanie obrębów", image=self.icon_start,
@@ -2734,17 +2741,20 @@ class ModernApp(ctk.CTk):
 
         tylko_wyrownywanie = self.rozl_tylko_wyrownywanie_var.get()
 
+        tylko_wyrownywanie = self.rozl_tylko_wyrownywanie_var.get()
+        usun_puste_jrej = self.rozl_usun_puste_jrej_var.get()
+
         self.last_output_dir = Path(folder_out)
         self._disable_ui_for_process()
         self.log(f"[ROZLICZANIE] URUCHOMIENIE PROCEDURY\nXLS: {folder_xls}\nVAL: {folder_val}")
         self.set_progress(0)
         threading.Thread(
             target=self.run_rozliczanie_thread,
-            args=(folder_xls, folder_val, folder_out, tylko_wyrownywanie),
+            args=(folder_xls, folder_val, folder_out, tylko_wyrownywanie, usun_puste_jrej),
             daemon=True,
         ).start()
 
-    def run_rozliczanie_thread(self, folder_xls_str, folder_val_str, folder_out_str, tylko_wyrownywanie):
+    def run_rozliczanie_thread(self, folder_xls_str, folder_val_str, folder_out_str, tylko_wyrownywanie, usun_puste_jrej=False):
         try:
             folder_xls = Path(folder_xls_str)
             folder_val = Path(folder_val_str)
@@ -2801,6 +2811,14 @@ class ModernApp(ctk.CTk):
                         raise Exception(f"Nie udało się wczytać pliku VAL: {sciezka_val.name}")
 
                     tabela_glowna, tabela_braki = polacz_xls_i_val(tabela_xls, df_full, tabela_val)
+
+                    # LOGIKA USUWANIA WIERSZY BEZ J. REJ.
+                    if usun_puste_jrej:
+                        # Rzutujemy na liczby, traktując wszelkie braki jako '0'
+                        jrej_num = pd.to_numeric(tabela_glowna['J. rej.'], errors='coerce').fillna(0)
+                        # Nadpisujemy tabelę pozostawiając tylko wiersze, gdzie J. rej. NIE JEST ZEREM
+                        tabela_glowna = tabela_glowna[jrej_num != 0].copy()
+
                     tabela_gotowa, tabela_przybylo, tabela_ubylo = wykonaj_makro_vba(
                         tabela_glowna, tabela_braki, tylko_wyrownywanie=tylko_wyrownywanie)
 
@@ -6996,7 +7014,14 @@ class ModernApp(ctk.CTk):
             text="Do D*.DBF trafią: J. rej. -> NRREJ, nr_dz -> NR_DZIAL, kolumna F -> POW i POW_L_ZAL, "
                  "cyfry z 'litery' -> ODDZIAL, litery z 'litery' -> PODODDZ.",
             font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#888888",
-        ).grid(row=2, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+        ).grid(row=2, column=0, columnspan=3, padx=15, pady=(0, 5), sticky="w")
+
+        self.krzyz_usun_puste_jrej_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            card, text="Usuń wiersze jeśli w krzyżówce brakuje wartości w J. rej. (usuwanie wydzieleń bez właścicieli)",
+            variable=self.krzyz_usun_puste_jrej_var, font=ctk.CTkFont(family="Segoe UI", size=12),
+            fg_color="#8B0000", hover_color="#A52A2A"
+        ).grid(row=3, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
 
         self.krzyz_start_btn = ctk.CTkButton(
             scroll_frame, text="Wstrzyknij krzyżówki do DBF", image=self.icon_start,
@@ -7017,15 +7042,18 @@ class ModernApp(ctk.CTk):
             return
         if self.running:
             return
+
+        usun_puste_jrej = self.krzyz_usun_puste_jrej_var.get()
+
         self.last_output_dir = Path(mietki_dir)
         self._disable_ui_for_process()
         self.log(f"[KRZYŻÓWKI] URUCHOMIENIE\nXLSX: {xls_dir}\nMIETKI: {mietki_dir}")
         self.set_progress(0)
         threading.Thread(
-            target=self.run_krzyzowki_thread, args=(xls_dir, mietki_dir), daemon=True,
+            target=self.run_krzyzowki_thread, args=(xls_dir, mietki_dir, usun_puste_jrej), daemon=True,
         ).start()
 
-    def run_krzyzowki_thread(self, xls_dir_str, mietki_dir_str):
+    def run_krzyzowki_thread(self, xls_dir_str, mietki_dir_str, usun_puste_jrej=False):
         try:
             self.update_status("Wstrzykiwanie krzyżówek do plików D*.DBF...", "#0078D7")
             xls_dir = Path(xls_dir_str)
@@ -7110,6 +7138,11 @@ class ModernApp(ctk.CTk):
                             nrrej_val = int(float(row.get('J. rej.', 0)))
                         except Exception:
                             nrrej_val = 0
+
+                        # NOWA LOGIKA: Jeśli zaznaczono usuwanie i brakuje nr rejestru (0), pomiń wiersz!
+                        if usun_puste_jrej and nrrej_val == 0:
+                            continue
+
                         nr_dz = str(row.get('nr_dz', '')).strip()
                         litery = str(row.get('litery', ''))
                         oddzial = "".join(ch for ch in litery if ch.isdigit())[:7]  # cyfry  -> ODDZIAL
