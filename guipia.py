@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.4.1"
+CURRENT_VERSION = "v1.4.2"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -2178,6 +2178,8 @@ class ModernApp(ctk.CTk):
         self.setup_halizny_tab(tab_halizny)
         tab_excel_z_mdb = self.rozliczanie_tabview.add("Excel z MDB")
         self.setup_excel_z_mdb_tab(tab_excel_z_mdb)
+        # Przywrócenie widoku zakładki Konwerter PDF
+        self.setup_pdf_converter_tab(category_pdfconv)
 
         self.options_frame = ctk.CTkFrame(self.top_panel, fg_color="transparent")
         self.options_frame.grid(row=2, column=0, pady=(5, 5), sticky="w")
