@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.4.0"
+CURRENT_VERSION = "v1.4.1"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -1424,7 +1424,7 @@ def polacz_xls_i_val(df_xls, df_full, df_val):
     return df_out, nieotaksowane
 
 
-def wykonaj_makro_vba(df_out, df_braki):
+def wykonaj_makro_vba(df_out, df_braki, tylko_wyrownywanie=False):
     df = df_out.copy()
     df['bg_color'] = ""
     df['font_color'] = ""
@@ -1439,6 +1439,10 @@ def wykonaj_makro_vba(df_out, df_braki):
         # czerwony TEKST = w kolumnie I (pow ls) nie ma wartości
         df_font = 'FF0000' if is_new_forest else '000000'
         nadmiar_sciezka = pd.notna(pow_ewid) and suma_geo > (float(pow_ewid) + 0.1)
+
+        if tylko_wyrownywanie:
+            nadmiar_sciezka = False  # Wymuszenie proporcjonalnego wyrównania do LS
+
         suma_przepisanych = 0.0
 
         for idx in group.index:
@@ -1544,7 +1548,7 @@ def wykonaj_makro_vba(df_out, df_braki):
                 'pow dz': pow_docelowa if pd.notna(pow_docelowa) else ""
             })
 
-    if not df_braki.empty:
+    if not df_braki.empty and not tylko_wyrownywanie:
         for _, row in df_braki.iterrows():
             if '[OP]' not in str(row.get('właściciel', '')):
                 pow_ewid = row.get('pow ls', np.nan)
@@ -1557,6 +1561,10 @@ def wykonaj_makro_vba(df_out, df_braki):
                         'ile ubyło': -float(pow_ewid),
                         'pow dz': pow_doc if pd.notna(pow_doc) else ""
                     })
+
+    if tylko_wyrownywanie:
+        przybylo_data = []
+        ubylo_data = []
 
     return df, pd.DataFrame(przybylo_data), pd.DataFrame(ubylo_data)
 
@@ -1703,6 +1711,9 @@ class ModernApp(ctk.CTk):
         self.krzyz_start_btn = None
         self.halizny_mietki_entry = None
         self.halizny_start_btn = None
+        self.excel_z_mdb_src_entry = None
+        self.excel_z_mdb_out_entry = None
+        self.excel_z_mdb_start_btn = None
 
         # Zmienne dla Pełny Automat - STR_TYT i SKROTY
         self.all_gen_str_tyt_var = None
@@ -2165,6 +2176,8 @@ class ModernApp(ctk.CTk):
         self.setup_tworzenie_mietkow_tab(tab_tworzenie_mietkow)
         self.setup_krzyzowki_tab(tab_krzyzowki)
         self.setup_halizny_tab(tab_halizny)
+        tab_excel_z_mdb = self.rozliczanie_tabview.add("Excel z MDB")
+        self.setup_excel_z_mdb_tab(tab_excel_z_mdb)
 
         self.options_frame = ctk.CTkFrame(self.top_panel, fg_color="transparent")
         self.options_frame.grid(row=2, column=0, pady=(5, 5), sticky="w")
@@ -2569,7 +2582,14 @@ class ModernApp(ctk.CTk):
             card,
             text="Dopasowanie: nazwa pliku XLS → plik *.val o tej samej nazwie (ignorując spacje i _ )",
             font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#888888",
-        ).grid(row=3, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+        ).grid(row=3, column=0, columnspan=3, padx=15, pady=(0, 5), sticky="w")
+
+        self.rozl_tylko_wyrownywanie_var = ctk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            card, text="Wymuś wyrównanie do ewidencji Ls (nie twórz arkuszy PRZYBYŁO/UBYŁO, zostaw tylko szumy)",
+            variable=self.rozl_tylko_wyrownywanie_var,
+            font=ctk.CTkFont(family="Segoe UI", size=12), fg_color="#0067C0", hover_color="#005A9E"
+        ).grid(row=4, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
 
         self.rozl_start_btn = ctk.CTkButton(
             scroll_frame, text="Uruchom rozliczanie obrębów", image=self.icon_start,
@@ -2710,17 +2730,19 @@ class ModernApp(ctk.CTk):
         if self.running:
             return
 
+        tylko_wyrownywanie = self.rozl_tylko_wyrownywanie_var.get()
+
         self.last_output_dir = Path(folder_out)
         self._disable_ui_for_process()
         self.log(f"[ROZLICZANIE] URUCHOMIENIE PROCEDURY\nXLS: {folder_xls}\nVAL: {folder_val}")
         self.set_progress(0)
         threading.Thread(
             target=self.run_rozliczanie_thread,
-            args=(folder_xls, folder_val, folder_out),
+            args=(folder_xls, folder_val, folder_out, tylko_wyrownywanie),
             daemon=True,
         ).start()
 
-    def run_rozliczanie_thread(self, folder_xls_str, folder_val_str, folder_out_str):
+    def run_rozliczanie_thread(self, folder_xls_str, folder_val_str, folder_out_str, tylko_wyrownywanie):
         try:
             folder_xls = Path(folder_xls_str)
             folder_val = Path(folder_val_str)
@@ -2778,7 +2800,7 @@ class ModernApp(ctk.CTk):
 
                     tabela_glowna, tabela_braki = polacz_xls_i_val(tabela_xls, df_full, tabela_val)
                     tabela_gotowa, tabela_przybylo, tabela_ubylo = wykonaj_makro_vba(
-                        tabela_glowna, tabela_braki)
+                        tabela_glowna, tabela_braki, tylko_wyrownywanie=tylko_wyrownywanie)
 
                     with pd.ExcelWriter(str(plik_wyjsciowy), engine="openpyxl") as writer:
                         kolumny_wyjsciowe = [
@@ -5253,6 +5275,10 @@ class ModernApp(ctk.CTk):
             self.halizny_start_btn.configure(
                 state="disabled", text="Przetwarzanie...", fg_color="#444444"
             )
+        if self.excel_z_mdb_start_btn is not None:
+            self.excel_z_mdb_start_btn.configure(
+                state="disabled", text="Przetwarzanie...", fg_color="#444444"
+            )
         for mode in self.tpl_data:
             if "btn_gen" in self.tpl_data[mode]:
                 self.tpl_data[mode]["btn_gen"].configure(
@@ -6822,6 +6848,10 @@ class ModernApp(ctk.CTk):
             self.halizny_start_btn.configure(
                 state="normal", text="Przenieś halizny w D*.DBF", fg_color="#0067C0"
             )
+        if self.excel_z_mdb_start_btn is not None:
+            self.excel_z_mdb_start_btn.configure(
+                state="normal", text="Wyciągnij dane z MDB", fg_color="#0067C0"
+            )
         for mode in self.tpl_data:
             if "btn_gen" in self.tpl_data[mode]:
                 self.tpl_data[mode]["btn_gen"].configure(
@@ -7391,6 +7421,159 @@ class ModernApp(ctk.CTk):
                 f"brak DBF {stat_brak_dbf}, puste {stat_puste} (z {total}).")
             self.after(
                 0, lambda: messagebox.showinfo("Sukces", f"Halizny: zmodyfikowano {stat_ok} obrębów."))
+        except InterruptedError:
+            self.update_status("Przerwano", "#D83B01", animate=False)
+            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+        except Exception as e:
+            self.log(traceback.format_exc())
+            self.update_status("Błąd", "#D83B01", animate=False)
+        finally:
+            self.running = False
+            self.after(0, self.restore_all_buttons)
+
+    # ==========================================
+    # ZAKŁADKA: EXCEL Z MDB
+    # ==========================================
+    def setup_excel_z_mdb_tab(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+        font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        font_btn = ctk.CTkFont(family="Segoe UI", size=13)
+
+        card = ctk.CTkFrame(
+            scroll_frame, fg_color="#252526", corner_radius=8,
+            border_width=1, border_color="#333333",
+        )
+        card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
+        card.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            card, text="Plik źródłowy (.mdb):", font=font_label, text_color="#E0E0E0"
+        ).grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
+        self.excel_z_mdb_src_entry = ctk.CTkEntry(
+            card, placeholder_text="Wskaż plik bazy danych MDB...", height=36
+        )
+        self.excel_z_mdb_src_entry.grid(row=0, column=1, padx=5, pady=(15, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Wybierz Plik", image=self.icon_folder,
+            command=lambda: self.select_file(self.excel_z_mdb_src_entry, [("Baza Access", "*.mdb")]),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=0, column=2, padx=15, pady=(15, 8))
+
+        ctk.CTkLabel(
+            card, text="Zapisz Excel jako:", font=font_label, text_color="#E0E0E0"
+        ).grid(row=1, column=0, padx=15, pady=(8, 15), sticky="w")
+        self.excel_z_mdb_out_entry = ctk.CTkEntry(
+            card, placeholder_text="Gdzie zapisać gotowy plik .xlsx?", height=36
+        )
+        self.excel_z_mdb_out_entry.grid(row=1, column=1, padx=5, pady=(8, 15), sticky="ew")
+
+        # Funkcja pomocnicza do zapisu pliku xlsx
+        def select_save_xlsx():
+            f_path = filedialog.asksaveasfilename(
+                defaultextension=".xlsx",
+                filetypes=[("Skoroszyt Excel", "*.xlsx")],
+                title="Zapisz plik ewidencji jako"
+            )
+            if f_path:
+                self.excel_z_mdb_out_entry.delete(0, "end")
+                self.excel_z_mdb_out_entry.insert(0, f_path)
+
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=select_save_xlsx,
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=1, column=2, padx=15, pady=(8, 15))
+
+        self.excel_z_mdb_start_btn = ctk.CTkButton(
+            scroll_frame, text="Wyciągnij dane z MDB", image=self.icon_start,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#0067C0", hover_color="#005A9E", height=44, corner_radius=6,
+            command=self.start_excel_z_mdb_pipeline,
+        )
+        self.excel_z_mdb_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+
+    def start_excel_z_mdb_pipeline(self):
+        mdb_path = self.excel_z_mdb_src_entry.get().strip() if self.excel_z_mdb_src_entry else ""
+        out_path = self.excel_z_mdb_out_entry.get().strip() if self.excel_z_mdb_out_entry else ""
+
+        if not mdb_path or not Path(mdb_path).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący plik źródłowy .mdb.")
+            return
+        if not out_path:
+            messagebox.showwarning("Błąd", "Wybierz miejsce i nazwę dla docelowego pliku Excel.")
+            return
+
+        if self.running:
+            return
+
+        self.last_output_dir = Path(out_path).parent
+        self._disable_ui_for_process()
+        self.log(f"[EXCEL Z MDB] URUCHOMIENIE\nZ: {mdb_path}\nDo: {out_path}")
+        self.set_progress(0)
+
+        threading.Thread(
+            target=self.run_excel_z_mdb_thread, args=(mdb_path, out_path), daemon=True,
+        ).start()
+
+    def run_excel_z_mdb_thread(self, mdb_path_str, output_path_str):
+        import warnings
+        warnings.filterwarnings('ignore', category=UserWarning)
+        try:
+            self.update_status("Wyciąganie ewidencji z pliku MDB...", "#0078D7")
+            self.start_progress_tracking(1, "Eksport bazy MDB")
+            self.check_stop()
+
+            self.log(f"  -> Nawiązywanie połączenia z bazą: {Path(mdb_path_str).name}")
+            conn_str = rf"DRIVER={{Microsoft Access Driver (*.mdb, *.accdb)}};DBQ={mdb_path_str};"
+            conn = pyodbc.connect(conn_str)
+
+            sql = """
+            SELECT 
+                p.PARCEL_NR AS numer_dzialki, 
+                p.LAND_REGISTER_NR AS j_rej, 
+                p.PARCEL_AREA AS pow_dzialki, 
+                u.AREA_USE_CD AS klasouzytek, 
+                u.LAND_USE_AREA AS pow_klasouz
+            FROM 
+                F_PARCEL p
+            LEFT JOIN 
+                F_PARCEL_LAND_USE u ON p.PARCEL_INT_NUM = u.PARCEL_INT_NUM
+            """
+
+            self.log("  -> Pobieranie surowych danych i rozwiązywanie relacji...")
+            df = pd.read_sql(sql, conn)
+            conn.close()
+
+            self.check_stop()
+            self.log("  -> Formatowanie kolumn zgodnie ze standardami Kombajnu...")
+
+            df = df.rename(columns={
+                'numer_dzialki': 'Numer działki',
+                'j_rej': 'J. rej.',
+                'pow_dzialki': 'Pow. działki',
+                'klasouzytek': 'Klasoużytek',
+                'pow_klasouz': 'Pow. klasouż.'
+            })
+
+            df['Właściciel'] = 'Brak danych'
+            df['Numer działki'] = df['Numer działki'].astype(str).str.strip()
+            df['J. rej.'] = df['J. rej.'].astype(str).str.strip()
+
+            df = df[['Numer działki', 'J. rej.', 'Pow. działki', 'Właściciel', 'Klasoużytek', 'Pow. klasouż.']]
+
+            self.check_stop()
+            self.log(f"  -> Trwa zapisywanie do pliku Excel: {Path(output_path_str).name}")
+            df.to_excel(output_path_str, index=False)
+
+            self.set_progress(1)
+            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
+            self.log(f"\n✅ SUKCES! Plik został wygenerowany. Zmodyfikuj ewentualne poprawki w kolumnie właścicieli i wczytaj do modułu Rozliczania powierzchni.")
+            self.after(0, lambda: messagebox.showinfo("Sukces", "Wygenerowano plik Excel zgodny z systemem."))
+
         except InterruptedError:
             self.update_status("Przerwano", "#D83B01", animate=False)
             self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
