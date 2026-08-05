@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.4.4"
+CURRENT_VERSION = "v1.4.5"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -2099,6 +2099,8 @@ class ModernApp(ctk.CTk):
         tab_mietek_title = self.mietek_tabview.add("Zaczytywanie danych STR_TYT")
         tab_pdf = self.mietek_tabview.add("Konwersja: Word -> PDF")
         tab_manual = self.mietek_tabview.add("Ręczne scalanie PDF")
+        tab_mietek_rozb = self.mietek_tabview.add("Wykaz Rozbieżności")
+        self.setup_mietek_rozbieznosci_tab(tab_mietek_rozb)
 
         tab_template_gen = self.taksator_tabview.add("Kreator Szablonu STR_TYT")
         tab_title = self.taksator_tabview.add("Zaczytywanie danych STR_TYT")
@@ -2801,271 +2803,6 @@ class ModernApp(ctk.CTk):
             daemon=True,
         ).start()
 
-    def run_rozliczanie_thread(self, folder_xls_str, folder_val_str, folder_out_str, tylko_wyrownywanie,
-                               usun_puste_jrej=False):
-        try:
-            folder_xls = Path(folder_xls_str)
-            folder_val = Path(folder_val_str)
-            folder_out = Path(folder_out_str)
-            folder_out.mkdir(parents=True, exist_ok=True)
-
-            xls_files = sorted(
-                [
-                    p for p in folder_xls.iterdir()
-                    if p.is_file()
-                       and p.suffix.lower() in {".xls", ".xlsx"}
-                       and not p.name.startswith("~$")
-                ]
-            )
-            if not xls_files:
-                raise Exception("Brak plików XLS/XLSX we wskazanym folderze.")
-
-            total = len(xls_files)
-            self.start_progress_tracking(total, "Rozliczanie obrębów")
-            self.update_status("Rozliczanie powierzchni obrębów...", "#0078D7")
-
-            stat_sukces = 0
-            stat_brak_val = []
-            stat_bledy = []
-
-            for idx, sciezka_xls in enumerate(xls_files, start=1):
-                self.check_stop()
-                nazwa_wsi = sciezka_xls.stem
-                self.log(f"[ROZLICZANIE] ▸ Przetwarzanie obrębu: {nazwa_wsi}")
-
-                # PRECYZYJNE DOPASOWANIE VAL (zapobiega pomyleniu "LIS" z "LISIE_POLE")
-                nazwa_wsi_czysta = re.sub(r"[\s_]", "", nazwa_wsi.lower())
-                pasujace_val = []
-                for f in folder_val.iterdir():
-                    if f.is_file() and f.suffix.lower() == ".val":
-                        f_czysta = re.sub(r"[\s_]", "", f.name.lower())
-                        if f_czysta.endswith(nazwa_wsi_czysta + ".val"):
-                            pasujace_val.append(f)
-
-                if not pasujace_val:
-                    self.log(f"  ⚠️ Pominięto '{nazwa_wsi}' — brak pasującego pliku .val")
-                    stat_brak_val.append(nazwa_wsi)
-                    self.set_progress(idx / total, current_file=sciezka_xls.name, current=idx)
-                    continue
-
-                sciezka_val = pasujace_val[0]
-                plik_wyjsciowy = folder_out / f"{nazwa_wsi}_Rozliczone.xlsx"
-
-                try:
-                    tabela_xls, df_full = wczytaj_i_przetworz_wlascicieli(str(sciezka_xls))
-                    tabela_val = wczytaj_i_przetworz_val(str(sciezka_val))
-
-                    if tabela_val is None:
-                        raise Exception(f"Nie udało się wczytać pliku VAL: {sciezka_val.name}")
-
-                    tabela_glowna, tabela_braki = polacz_xls_i_val(tabela_xls, df_full, tabela_val)
-
-                    # LOGIKA USUWANIA WIERSZY BEZ J. REJ.
-                    if usun_puste_jrej:
-                        # Rzutujemy na liczby, traktując wszelkie braki jako '0'
-                        jrej_num = pd.to_numeric(tabela_glowna['J. rej.'], errors='coerce').fillna(0)
-                        # Nadpisujemy tabelę pozostawiając tylko wiersze, gdzie J. rej. NIE JEST ZEREM
-                        tabela_glowna = tabela_glowna[jrej_num != 0].copy()
-
-                    # ZMODYFIKOWANE WYWOŁANIE (4 ZMIENNE ZAMIAST 3)
-                    tabela_gotowa, tabela_przybylo, tabela_ubylo, pelny_wykaz_data = wykonaj_makro_vba(
-                        tabela_glowna, tabela_braki, tylko_wyrownywanie=tylko_wyrownywanie)
-
-                    with pd.ExcelWriter(str(plik_wyjsciowy), engine="openpyxl") as writer:
-                        kolumny_wyjsciowe = [
-                            c for c in tabela_gotowa.columns
-                            if c not in ("bg_color", "font_color")
-                        ]
-                        tabela_gotowa[kolumny_wyjsciowe].to_excel(
-                            writer, sheet_name="Tabela_Glowna", index=False)
-
-                        if not tabela_braki.empty:
-                            tabela_braki_eksport = tabela_braki[
-                                ["J. rej.", "nr_dz", "pow ls", "pow dz", "właściciel"]]
-                            tabela_braki_eksport.to_excel(
-                                writer, sheet_name="Nieotaksowane", index=False)
-                        else:
-                            pd.DataFrame(
-                                columns=["J. rej.", "nr_dz", "pow ls", "pow dz", "właściciel"]
-                            ).to_excel(writer, sheet_name="Nieotaksowane", index=False)
-
-                        if not tabela_przybylo.empty:
-                            tabela_przybylo.to_excel(
-                                writer, sheet_name="PRZYBYLO", index=False, startrow=1)
-                        if not tabela_ubylo.empty:
-                            tabela_ubylo.to_excel(
-                                writer, sheet_name="UBYLO", index=False, startrow=1)
-
-                        # Kolorowanie kolumny "TU POWSTANĄ DANE" (kolumna 6)
-                        worksheet_glowna = writer.sheets["Tabela_Glowna"]
-                        for row_idx, row in enumerate(tabela_gotowa.itertuples(), start=2):
-                            bg_col = getattr(row, "bg_color", "")
-                            f_col = getattr(row, "font_color", "")
-                            cell = worksheet_glowna.cell(row=row_idx, column=6)
-                            if pd.notna(bg_col) and bg_col != "":
-                                cell.fill = PatternFill(
-                                    start_color=str(bg_col), end_color=str(bg_col),
-                                    fill_type="solid")
-                            if pd.notna(f_col) and f_col != "":
-                                cell.font = Font(color=str(f_col))
-
-                        if "PRZYBYLO" in writer.sheets:
-                            formatuj_arkusz_raportowy(
-                                writer.sheets["PRZYBYLO"], "PRZYBYŁO", "FF0000")
-                        if "UBYLO" in writer.sheets:
-                            formatuj_arkusz_raportowy(
-                                writer.sheets["UBYLO"], "UBYŁO", "87CEEB")
-
-                    self.log(f"  ✅ Zapisano: {plik_wyjsciowy.name}")
-
-                    # --- NOWA LOGIKA: TWORZENIE KOPII SZABLONU WYKAZU ROZBIEŻNOŚCI ---
-                    if not tylko_wyrownywanie and pelny_wykaz_data:
-                        import openpyxl
-
-                        # 1. Filtrujemy: zostawiamy tylko te działki, które mają UBYŁO lub PRZYBYŁO
-                        pelny_wykaz_filtrowany = [
-                            r for r in pelny_wykaz_data
-                            if r.get('przybyło') is not None or r.get('ubyło') is not None
-                        ]
-
-                        if pelny_wykaz_filtrowany:  # Tworzymy plik tylko, jeśli są jakieś zmiany!
-                            template_path = get_resource_path("BIAŁYNIN KRASÓWKA.xlsx")
-                            if Path(template_path).exists():
-                                try:
-                                    wb_template = openpyxl.load_workbook(template_path)
-                                    if 'Wykaz rozbieżnosci' in wb_template.sheetnames:
-                                        ws_rozbieznosci = wb_template['Wykaz rozbieżnosci']
-
-                                        # --- ZMIANA: Wpisujemy samą nazwę wsi w komórce A3 (bez przedrostków) ---
-                                        ws_rozbieznosci['A3'] = nazwa_wsi.upper()
-
-                                        # Kasowanie starych rzędów od wiersza 8 w dół
-                                        max_r = ws_rozbieznosci.max_row
-                                        if max_r >= 8:
-                                            ws_rozbieznosci.delete_rows(8, max_r - 7)
-
-                                        # Wpisywanie nowych danych ze stylizacją
-                                        start_row = 8
-                                        thin_border = Border(left=Side(style='thin', color='000000'),
-                                                             right=Side(style='thin', color='000000'),
-                                                             top=Side(style='thin', color='000000'),
-                                                             bottom=Side(style='thin', color='000000'))
-
-                                        for i, record in enumerate(pelny_wykaz_filtrowany):
-                                            row_idx = start_row + i
-
-                                            # --- INTELIGENTNE CZYSZCZENIE WŁAŚCICIELI (ROZPOZNAJE BLOKI) ---
-                                            surowy_wlasciciel = str(record.get('właściciel', '')).replace('nan',
-                                                                                                          'Brak danych')
-                                            clean_names_list = []
-
-                                            blocks = re.split(r'(?m)^(\d+/\d+)\s+\[.*?\]\s*', surowy_wlasciciel)
-                                            if len(blocks) == 1:
-                                                blocks = re.split(r'(?m)^(\d+/\d+)\s+\[.*?\]\s*',
-                                                                  "1/1 [własność] " + surowy_wlasciciel)
-
-                                            for b_idx in range(1, len(blocks), 2):
-                                                rest = blocks[b_idx + 1]
-                                                lines = [line.strip() for line in rest.split('\n') if line.strip()]
-                                                parsing_names = True
-                                                for line in lines:
-                                                    if line == 'Podmiot grupowy': continue
-                                                    if parsing_names:
-                                                        clean_name = re.sub(r'\s*\[(OF|OP|PG)\]', '', line).strip()
-                                                        if clean_name:
-                                                            clean_names_list.append(clean_name)
-                                                        if re.search(r'\[(OF|OP|PG)\]', line):
-                                                            parsing_names = False
-                                                    else:
-                                                        pass  # Ignorujemy linie z adresem
-
-                                            if clean_names_list:
-                                                clean_names = ", ".join(clean_names_list)
-                                            else:
-                                                clean_names = surowy_wlasciciel.replace('\n', ' ')
-                                            # -------------------------------------------------------
-
-                                            ws_rozbieznosci.cell(row=row_idx, column=1, value=record.get('J. rej.', ''))
-                                            ws_rozbieznosci.cell(row=row_idx, column=2, value=clean_names)
-                                            ws_rozbieznosci.cell(row=row_idx, column=3,
-                                                                 value=record.get('nr działki', ''))
-                                            ws_rozbieznosci.cell(row=row_idx, column=4,
-                                                                 value=record.get('ls ewidenca', ''))
-
-                                            przybylo_val = record.get('przybyło')
-                                            if przybylo_val is not None:
-                                                ws_rozbieznosci.cell(row=row_idx, column=5, value=przybylo_val)
-
-                                            ubylo_val = record.get('ubyło')
-                                            if ubylo_val is not None:
-                                                ws_rozbieznosci.cell(row=row_idx, column=6, value=ubylo_val)
-
-                                            ws_rozbieznosci.cell(row=row_idx, column=7,
-                                                                 value=record.get('po zmianie', ''))
-
-                                            # Obramowanie i formatowanie liczb do 4 miejsc po przecinku
-                                            for col in range(1, 9):
-                                                cell = ws_rozbieznosci.cell(row=row_idx, column=col)
-                                                cell.border = thin_border
-                                                cell.font = Font(name="Arial", size=10)
-                                                if col in [4, 5, 6, 7]:
-                                                    cell.number_format = '0.0000'
-
-                                        # Nowa nazwa pliku
-                                        rozbieznosci_output = folder_out / f"{nazwa_wsi}_WYKAZ ROZBIEZNOSCI.xlsx"
-                                        wb_template.save(str(rozbieznosci_output))
-                                        self.log(f"  ✅ Utworzono wykaz rozbieżności: {rozbieznosci_output.name}")
-                                except Exception as e:
-                                    self.log(f"  ❌ Błąd tworzenia wykazu rozbieżności dla {nazwa_wsi}: {e}")
-                            else:
-                                self.log(
-                                    "  ⚠️ Nie znaleziono pliku wzorcowego 'BIAŁYNIN KRASÓWKA.xlsx'. Upewnij się, że jest w folderze.")
-                        else:
-                            self.log(
-                                f"  ℹ️ Obręb {nazwa_wsi} nie posiada działek ze statusem Przybyło/Ubyło. Pomijam tworzenie Wykazu Rozbieżności.")
-                    # -------------------------------------------------------------------------
-
-                    stat_sukces += 1
-
-                except PermissionError:
-                    self.log(
-                        f"  ❌ BŁĄD UPRAWNIEŃ: nie można zapisać '{nazwa_wsi}_Rozliczone.xlsx' "
-                        f"— zamknij plik w Excelu i spróbuj ponownie.")
-                    stat_bledy.append(nazwa_wsi)
-                except Exception as e:
-                    self.log(f"  ❌ Błąd przy obrębie '{nazwa_wsi}': {e}")
-                    stat_bledy.append(nazwa_wsi)
-
-                self.set_progress(idx / total, current_file=sciezka_xls.name, current=idx)
-
-            # --- RAPORT KOŃCOWY ---
-            self.log("\n" + "=" * 55)
-            self.log("PODSUMOWANIE ROZLICZANIA OBRĘBÓW")
-            self.log(f"✅ Przetworzono poprawnie: {stat_sukces}")
-            if stat_brak_val:
-                self.log(f"⚠️ Pominięto (brak VAL): {len(stat_brak_val)} -> {', '.join(stat_brak_val)}")
-            if stat_bledy:
-                self.log(f"❌ Zakończone błędem: {len(stat_bledy)} -> {', '.join(stat_bledy)}")
-            self.log("=" * 55)
-
-            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
-            podsumowanie = (
-                f"Rozliczanie obrębów zakończone.\n\n"
-                f"✅ Przetworzono poprawnie: {stat_sukces}\n"
-                f"⚠️ Pominięto (brak pliku VAL): {len(stat_brak_val)}\n"
-                f"❌ Zakończone błędem: {len(stat_bledy)}"
-            )
-            self.after(0, lambda: messagebox.showinfo("Rozliczanie obrębów", podsumowanie))
-
-        except InterruptedError:
-            self.update_status("Przerwano", "#D83B01", animate=False)
-            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
-        except Exception as e:
-            self.log(traceback.format_exc())
-            self.update_status("Błąd", "#D83B01", animate=False)
-        finally:
-            self.running = False
-            self.after(0, self.restore_all_buttons)
 
     def _build_margins_ui(self, parent_frame, row_idx, mode_key):
         if not hasattr(self, "margin_vars"):
@@ -5463,6 +5200,8 @@ class ModernApp(ctk.CTk):
                 )
         if self.stream_frame:
             self.stream_frame.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
+        if hasattr(self, 'mietek_rozb_start_btn') and self.mietek_rozb_start_btn is not None:
+            self.mietek_rozb_start_btn.configure(state="disabled", text="Przetwarzanie...", fg_color="#444444")
 
     def start_pipeline(self, mode):
         src_path = self.entries[mode]["src"].get()
@@ -7034,6 +6773,8 @@ class ModernApp(ctk.CTk):
                 self.tpl_data[mode]["btn_gen"].configure(
                     state="normal", text="Wygeneruj Szablon STR_TYT", fg_color="#27ae60"
                 )
+        if hasattr(self, 'mietek_rozb_start_btn') and self.mietek_rozb_start_btn is not None:
+            self.mietek_rozb_start_btn.configure(state="normal", text="Generuj Wykaz Rozbieżności", fg_color="#0067C0")
 
         def _finish_progress():
             try:
@@ -7870,7 +7611,8 @@ class ModernApp(ctk.CTk):
                     if typ in ('C', 'M', 'G'):
                         rec[name] = raw.decode('cp852', 'replace').strip()
                     elif typ in ('N', 'F'):
-                        rec[name] = raw.decode('ascii', 'replace').strip()
+                        clean_val = raw.decode('ascii', 'replace').replace('\x00', '').strip()
+                        rec[name] = clean_val
                     elif typ == 'D':
                         rec[name] = raw.decode('ascii', 'replace').strip()
                     elif typ == 'L':
@@ -8176,6 +7918,374 @@ class ModernApp(ctk.CTk):
             self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
             self.log(f"\n✅ Zakończono generowanie folderów. Utworzono: {stat_sukces}/{total}")
             self.after(0, lambda: messagebox.showinfo("Sukces", f"Wygenerowano pomyślnie {stat_sukces} folderów MIETEK."))
+
+        except InterruptedError:
+            self.update_status("Przerwano", "#D83B01", animate=False)
+            self.log("\nZADANIE PRZERWANE PRZEZ UŻYTKOWNIKA.")
+        except Exception as e:
+            self.log(traceback.format_exc())
+            self.update_status("Błąd", "#D83B01", animate=False)
+        finally:
+            self.running = False
+            self.after(0, self.restore_all_buttons)
+
+    # ==========================================
+    # ZAKŁADKA: WYKAZ ROZBIEŻNOŚCI (MIETEK D*.DBF vs EXCEL)
+    # ==========================================
+    def setup_mietek_rozbieznosci_tab(self, parent):
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+        scroll_frame = ctk.CTkScrollableFrame(parent, fg_color="transparent")
+        scroll_frame.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        scroll_frame.grid_columnconfigure(0, weight=1)
+        font_label = ctk.CTkFont(family="Segoe UI", size=13, weight="bold")
+        font_btn = ctk.CTkFont(family="Segoe UI", size=13)
+        card = ctk.CTkFrame(
+            scroll_frame, fg_color="#252526", corner_radius=8,
+            border_width=1, border_color="#333333",
+        )
+        card.grid(row=0, column=0, padx=20, pady=(15, 15), sticky="new")
+        card.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            card, text="1. Folder z Mietkami (D*.DBF):", font=font_label, text_color="#E0E0E0",
+        ).grid(row=0, column=0, padx=15, pady=(15, 8), sticky="w")
+        self.mietek_rozb_mietki_entry = ctk.CTkEntry(
+            card, placeholder_text="Wskaż folder zawierający pliki D*.DBF (nawet bezpośrednio)", height=36,
+        )
+        self.mietek_rozb_mietki_entry.grid(row=0, column=1, padx=5, pady=(15, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.mietek_rozb_mietki_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=0, column=2, padx=15, pady=(15, 8))
+
+        ctk.CTkLabel(
+            card, text="2. Folder z plikami XLS (Ewidencja):", font=font_label, text_color="#E0E0E0",
+        ).grid(row=1, column=0, padx=15, pady=(8, 8), sticky="w")
+        self.mietek_rozb_excel_entry = ctk.CTkEntry(
+            card, placeholder_text="Wskaż folder z ewidencją (.xls/.xlsx)", height=36,
+        )
+        self.mietek_rozb_excel_entry.grid(row=1, column=1, padx=5, pady=(8, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.mietek_rozb_excel_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=1, column=2, padx=15, pady=(8, 8))
+
+        ctk.CTkLabel(
+            card, text="3. Folder docelowy zapisu:", font=font_label, text_color="#E0E0E0",
+        ).grid(row=2, column=0, padx=15, pady=(8, 8), sticky="w")
+        self.mietek_rozb_out_entry = ctk.CTkEntry(
+            card, placeholder_text="Gdzie zapisać gotowe raporty Wykazu Rozbieżności?", height=36,
+        )
+        self.mietek_rozb_out_entry.grid(row=2, column=1, padx=5, pady=(8, 8), sticky="ew")
+        ctk.CTkButton(
+            card, text="Przeglądaj", image=self.icon_folder,
+            command=lambda: self.select_dir(self.mietek_rozb_out_entry),
+            width=110, height=36, font=font_btn, fg_color="#333333", hover_color="#444444",
+        ).grid(row=2, column=2, padx=15, pady=(8, 8))
+
+        ctk.CTkLabel(
+            card,
+            text="Powierzchnie w plikach Excel są odczytywane jako m² i przeliczane na ha (÷10000).",
+            font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#888888",
+        ).grid(row=3, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
+
+        self.mietek_rozb_start_btn = ctk.CTkButton(
+            scroll_frame, text="Generuj Wykaz Rozbieżności", image=self.icon_start,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#0067C0", hover_color="#005A9E", height=44, corner_radius=6,
+            command=self.start_mietek_rozbieznosci_pipeline,
+        )
+        self.mietek_rozb_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+
+    def start_mietek_rozbieznosci_pipeline(self):
+        mietki_dir = self.mietek_rozb_mietki_entry.get().strip() if self.mietek_rozb_mietki_entry else ""
+        excel_dir = self.mietek_rozb_excel_entry.get().strip() if self.mietek_rozb_excel_entry else ""
+        out_dir = self.mietek_rozb_out_entry.get().strip() if self.mietek_rozb_out_entry else ""
+
+        if not mietki_dir or not Path(mietki_dir).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder z Mietkami (D*.DBF).")
+            return
+        if not excel_dir or not Path(excel_dir).exists():
+            messagebox.showwarning("Błąd", "Wybierz istniejący folder z plikami XLS Ewidencji.")
+            return
+        if not out_dir:
+            messagebox.showwarning("Błąd", "Wybierz folder docelowy dla raportów.")
+            return
+        if self.running:
+            return
+
+        self.last_output_dir = Path(out_dir)
+        self._disable_ui_for_process()
+        self.log(f"[WYKAZ ROZBIEŻNOŚCI] URUCHOMIENIE\nMIETKI: {mietki_dir}\nEXCEL: {excel_dir}")
+        self.set_progress(0)
+        threading.Thread(
+            target=self.run_mietek_rozbieznosci_thread,
+            args=(mietki_dir, excel_dir, out_dir),
+            daemon=True,
+        ).start()
+
+    def run_mietek_rozbieznosci_thread(self, mietki_dir_str, excel_dir_str, out_dir_str):
+        try:
+            self.update_status("Porównywanie DBF z Ewidencją i generowanie...", "#0078D7")
+            mietki_dir = Path(mietki_dir_str)
+            excel_dir = Path(excel_dir_str)
+            out_dir = Path(out_dir_str)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            xls_files = sorted([
+                f for f in excel_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in {".xls", ".xlsx"} and not f.name.startswith("~$")
+            ])
+            if not xls_files:
+                raise Exception("Brak plików Excel we wskazanym folderze Ewidencji.")
+
+            total = len(xls_files)
+            self.start_progress_tracking(total, "Generowanie raportów rozbieżności")
+            stat_sukces = 0
+            stat_brak_dbf = 0
+
+            def norm_jrej(val):
+                try:
+                    return str(int(float(str(val).strip())))
+                except Exception:
+                    return str(val).strip()
+
+            def safe_float(val):
+                if not val:
+                    return 0.0
+                clean_str = str(val).replace('\x00', '').replace(',', '.').strip()
+                match = re.search(r'-?\d+(?:\.\d+)?', clean_str)
+                if match:
+                    try:
+                        return float(match.group(0))
+                    except Exception:
+                        return 0.0
+                return 0.0
+
+            def safe_int_str(val):
+                if not val:
+                    return "0"
+                clean_str = str(val).replace('\x00', '').strip()
+                match = re.search(r'\d+', clean_str)
+                if match:
+                    try:
+                        return str(int(match.group(0)))
+                    except Exception:
+                        return "0"
+                return "0"
+
+            for idx, path_xls in enumerate(xls_files, start=1):
+                self.check_stop()
+
+                nazwa_wsi = re.sub(r'(?i)_?rozliczone.*$', '', path_xls.stem).strip()
+                if not nazwa_wsi:
+                    nazwa_wsi = path_xls.stem
+
+                self.progress_current_file = nazwa_wsi
+                v_norm = re.sub(r'[\s_\-]', '', nazwa_wsi.lower())
+
+                # 1. SZUKANIE DBF
+                target_dbf = None
+                all_dbfs = list(mietki_dir.rglob("D*.DBF")) + list(mietki_dir.rglob("D*.dbf")) + list(
+                    mietki_dir.rglob("d*.DBF")) + list(mietki_dir.rglob("d*.dbf"))
+                for dbf in all_dbfs:
+                    path_norm = re.sub(r'[\s_\-]', '', str(dbf).lower())
+                    if v_norm in path_norm:
+                        target_dbf = dbf
+                        break
+                if not target_dbf and len(all_dbfs) == 1:
+                    target_dbf = all_dbfs[0]
+
+                if not target_dbf:
+                    self.log(f"  ⚠️ {nazwa_wsi}: brak dopasowanego pliku D*.DBF (zignorowano).")
+                    stat_brak_dbf += 1
+                    self.set_progress(idx / total, current_file=nazwa_wsi, current=idx)
+                    continue
+
+                try:
+                    # 2. ODCZYT DBF (aktualna powierzchnia lasu)
+                    fields, records = self.read_dbf(str(target_dbf))
+                    dbf_data = []
+                    for rec in records:
+                        j_rej = safe_int_str(rec.get('NRREJ', ''))
+                        nr_dz = str(rec.get('NR_DZIAL', '')).replace('\x00', '').strip()
+                        pow_aktualna = safe_float(rec.get('POW', ''))
+                        if pow_aktualna > 0:
+                            dbf_data.append({'J. rej. norm': j_rej, 'nr_dz': nr_dz, 'pow_aktualna': pow_aktualna})
+
+                    df_dbf = pd.DataFrame(dbf_data)
+                    if not df_dbf.empty:
+                        df_dbf = df_dbf.groupby(['nr_dz', 'J. rej. norm'], as_index=False)['pow_aktualna'].sum()
+                    else:
+                        df_dbf = pd.DataFrame(columns=['nr_dz', 'J. rej. norm', 'pow_aktualna'])
+
+                    # 3. ODCZYT EXCELA (Ewidencja)  <-- TEGO BRAKOWAŁO
+                    try:
+                        tabela_xls, df_full = wczytaj_i_przetworz_wlascicieli(str(path_xls))
+                    except Exception as ex:
+                        self.log(f"  ❌ Błąd odczytu pliku Excel {path_xls.name}: {ex}")
+                        self.set_progress(idx / total, current_file=nazwa_wsi, current=idx)
+                        continue
+
+                    tabela_xls['J. rej. norm'] = tabela_xls['J. rej.'].apply(norm_jrej)
+                    if not df_full.empty and 'J. rej.' in df_full.columns:
+                        df_full['J. rej. norm'] = df_full['J. rej.'].apply(norm_jrej)
+
+                    # 3b. PRZELICZENIE JEDNOSTEK (Excel zawsze w m² -> ha)
+                    tabela_xls['pow ls'] = tabela_xls['pow ls'] / 10000.0
+                    tabela_xls['pow dz'] = tabela_xls['pow dz'] / 10000.0
+                    if not df_full.empty and 'pow dz' in df_full.columns:
+                        df_full['pow dz'] = df_full['pow dz'] / 10000.0
+
+                    # 4. ŁĄCZENIE (FULL OUTER JOIN - ubytki i przyrosty)
+                    df_merged = pd.merge(df_dbf, tabela_xls, on=['nr_dz', 'J. rej. norm'], how='outer')
+
+                    pelny_wykaz_filtrowany = []
+                    for _, row in df_merged.iterrows():
+                        nr_dz = str(row.get('nr_dz', '')).strip()
+                        j_rej_norm = str(row.get('J. rej. norm', '')).strip()
+
+                        pow_akt = row.get('pow_aktualna', 0.0)
+                        if pd.isna(pow_akt):
+                            pow_akt = 0.0
+                        pow_ewid = row.get('pow ls', 0.0)
+                        if pd.isna(pow_ewid):
+                            pow_ewid = 0.0
+
+                        diff = round(pow_akt - pow_ewid, 4)
+                        if abs(diff) <= 0.0010:
+                            continue
+
+                        j_rej = row.get('J. rej.')
+                        wlasc = row.get('Właściciel')
+
+                        if (pd.isna(j_rej) or pd.isna(wlasc)) and not df_full.empty:
+                            match_full = df_full[
+                                (df_full['nr_dz'] == nr_dz) & (df_full['J. rej. norm'] == j_rej_norm)
+                                ]
+                            if not match_full.empty:
+                                if pd.isna(j_rej):
+                                    j_rej = match_full.iloc[0]['J. rej.']
+                                if pd.isna(wlasc) and 'Właściciel' in match_full.columns:
+                                    wlasc = match_full.iloc[0]['Właściciel']
+
+                        if pd.isna(j_rej):
+                            j_rej = j_rej_norm
+                        if pd.isna(wlasc):
+                            wlasc = "Brak danych"
+
+                        # 5. CZYSZCZENIE NAZWISKA DO WYKAZU
+                        surowy_wlasciciel = str(wlasc).replace('nan', 'Brak danych')
+                        clean_names_list = []
+                        blocks = re.split(r'(?m)^(\d+/\d+)\s+\[.*?\]\s*', surowy_wlasciciel)
+                        if len(blocks) == 1:
+                            blocks = re.split(r'(?m)^(\d+/\d+)\s+\[.*?\]\s*', "1/1 [własność] " + surowy_wlasciciel)
+
+                        for b_idx in range(1, len(blocks), 2):
+                            if b_idx + 1 >= len(blocks):
+                                break
+                            rest = blocks[b_idx + 1]
+                            lines = [line.strip() for line in rest.split('\n') if line.strip()]
+                            parsing_names = True
+                            for line in lines:
+                                if line == 'Podmiot grupowy':
+                                    continue
+                                if parsing_names:
+                                    clean_name = re.sub(r'\s*\[(OF|OP|PG)\]', '', line).strip()
+                                    if clean_name:
+                                        clean_names_list.append(clean_name)
+                                    if re.search(r'\[(OF|OP|PG)\]', line):
+                                        parsing_names = False
+
+                        if clean_names_list:
+                            clean_names = ", ".join(clean_names_list)
+                        else:
+                            clean_names = surowy_wlasciciel.replace('\n', ' ')
+
+                        pelny_wykaz_filtrowany.append({
+                            'J. rej.': j_rej,
+                            'właściciel': clean_names,
+                            'nr działki': nr_dz,
+                            'ls ewidenca': pow_ewid,
+                            'przybyło': diff if diff > 0 else None,
+                            'ubyło': abs(diff) if diff < 0 else None,
+                            'po zmianie': pow_akt
+                        })
+
+                    # 6. ZAPIS DO EXCELA NA BAZIE SZABLONU
+                    if pelny_wykaz_filtrowany:
+                        import openpyxl
+                        template_path = get_resource_path("BIAŁYNIN KRASÓWKA.xlsx")
+                        if Path(template_path).exists():
+                            wb_template = openpyxl.load_workbook(template_path)
+                            if 'Wykaz rozbieżnosci' in wb_template.sheetnames:
+                                ws_rozbieznosci = wb_template['Wykaz rozbieżnosci']
+                                ws_rozbieznosci['A3'] = nazwa_wsi.upper()
+
+                                max_r = ws_rozbieznosci.max_row
+                                if max_r >= 8:
+                                    ws_rozbieznosci.delete_rows(8, max_r - 7)
+
+                                start_row = 8
+                                thin_border = Border(
+                                    left=Side(style='thin', color='000000'),
+                                    right=Side(style='thin', color='000000'),
+                                    top=Side(style='thin', color='000000'),
+                                    bottom=Side(style='thin', color='000000'))
+
+                                for i, record in enumerate(pelny_wykaz_filtrowany):
+                                    row_idx = start_row + i
+                                    ws_rozbieznosci.cell(row=row_idx, column=1, value=record.get('J. rej.', ''))
+                                    ws_rozbieznosci.cell(row=row_idx, column=2, value=record.get('właściciel', ''))
+                                    ws_rozbieznosci.cell(row=row_idx, column=3, value=record.get('nr działki', ''))
+                                    ws_rozbieznosci.cell(row=row_idx, column=4, value=record.get('ls ewidenca', ''))
+
+                                    przybylo_val = record.get('przybyło')
+                                    if przybylo_val is not None:
+                                        ws_rozbieznosci.cell(row=row_idx, column=5, value=przybylo_val)
+
+                                    ubylo_val = record.get('ubyło')
+                                    if ubylo_val is not None:
+                                        ws_rozbieznosci.cell(row=row_idx, column=6, value=ubylo_val)
+
+                                    ws_rozbieznosci.cell(row=row_idx, column=7, value=record.get('po zmianie', ''))
+
+                                    for col in range(1, 9):
+                                        cell = ws_rozbieznosci.cell(row=row_idx, column=col)
+                                        cell.border = thin_border
+                                        cell.font = Font(name="Arial", size=10)
+                                        if col in [4, 5, 6, 7]:
+                                            cell.number_format = '0.0000'
+
+                                rozbieznosci_output = out_dir / f"{nazwa_wsi}_WYKAZ ROZBIEZNOSCI.xlsx"
+                                wb_template.save(str(rozbieznosci_output))
+                                self.log(f"  ✅ Utworzono Wykaz Rozbieżności: {rozbieznosci_output.name}")
+                                stat_sukces += 1
+                            else:
+                                self.log(
+                                    "  ❌ Szablon 'BIAŁYNIN KRASÓWKA.xlsx' nie zawiera arkusza 'Wykaz rozbieżnosci'!")
+                        else:
+                            self.log(
+                                "  ⚠️ Nie znaleziono pliku wzorcowego 'BIAŁYNIN KRASÓWKA.xlsx'. Upewnij się, że jest w folderze.")
+                    else:
+                        self.log(f"  ℹ️ Obręb {nazwa_wsi} nie posiada zmian (ubyło/przybyło). Pomijam.")
+                        stat_sukces += 1
+
+                except Exception as e:
+                    self.log(f"  ❌ Błąd przetwarzania dla '{nazwa_wsi}': {e}")
+
+                self.set_progress(idx / total, current_file=nazwa_wsi, current=idx)
+
+            self.update_status("Zakończono pomyślnie.", "#27ae60", animate=False)
+            self.log(f"\n✅ ZAKOŃCZONO. Utworzono lub zweryfikowano: {stat_sukces}/{total}")
+            if stat_brak_dbf:
+                self.log(f"⚠️ Pomięto {stat_brak_dbf} obrębów z braku bazy D*.DBF.")
+
+            self.after(0, lambda: messagebox.showinfo(
+                "Sukces", f"Operacja zakończona (przetworzono {stat_sukces} obrębów)."))
 
         except InterruptedError:
             self.update_status("Przerwano", "#D83B01", animate=False)
