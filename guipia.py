@@ -43,7 +43,7 @@ except ImportError:
     )
 
 # --- KONFIGURACJA AKTUALIZACJI GITHUB ---
-CURRENT_VERSION = "v1.4.5"
+CURRENT_VERSION = "v1.4.6"
 GITHUB_USER = "wskakuj"
 GITHUB_REPO = "kombajn-lesny-pro"
 
@@ -5202,6 +5202,8 @@ class ModernApp(ctk.CTk):
             self.stream_frame.grid(row=1, column=0, sticky="nsew", pady=(10, 0))
         if hasattr(self, 'mietek_rozb_start_btn') and self.mietek_rozb_start_btn is not None:
             self.mietek_rozb_start_btn.configure(state="disabled", text="Przetwarzanie...", fg_color="#444444")
+        if hasattr(self, 'mietek_rozb_bez_nazwisk_btn') and self.mietek_rozb_bez_nazwisk_btn is not None:
+            self.mietek_rozb_bez_nazwisk_btn.configure(state="disabled", text="Przetwarzanie...", fg_color="#444444")
 
     def start_pipeline(self, mode):
         src_path = self.entries[mode]["src"].get()
@@ -6775,6 +6777,8 @@ class ModernApp(ctk.CTk):
                 )
         if hasattr(self, 'mietek_rozb_start_btn') and self.mietek_rozb_start_btn is not None:
             self.mietek_rozb_start_btn.configure(state="normal", text="Generuj Wykaz Rozbieżności", fg_color="#0067C0")
+        if hasattr(self, 'mietek_rozb_bez_nazwisk_btn') and self.mietek_rozb_bez_nazwisk_btn is not None:
+            self.mietek_rozb_bez_nazwisk_btn.configure(state="normal", text="Bez Nazwisk", fg_color="#8B0000")
 
         def _finish_progress():
             try:
@@ -7988,19 +7992,38 @@ class ModernApp(ctk.CTk):
 
         ctk.CTkLabel(
             card,
-            text="Powierzchnie w plikach Excel są odczytywane jako m² i przeliczane na ha (÷10000).",
+            text="Powierzchnie w plikach Excel są odczytywane jako m² i przeliczane na ha (÷10000). "
+                 "Nazwa obrębu pobierana z WSIE.DBF (pole NAZWA). Tabela sortowana po J. rej. rosnąco.",
             font=ctk.CTkFont(family="Segoe UI", size=12), text_color="#888888",
         ).grid(row=3, column=0, columnspan=3, padx=15, pady=(0, 15), sticky="w")
 
+        # --- DWA PRZYCISKI OBOK SIEBIE ---
+        btn_frame = ctk.CTkFrame(scroll_frame, fg_color="transparent")
+        btn_frame.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+        btn_frame.grid_columnconfigure((0, 1), weight=1)
+
         self.mietek_rozb_start_btn = ctk.CTkButton(
-            scroll_frame, text="Generuj Wykaz Rozbieżności", image=self.icon_start,
+            btn_frame, text="Generuj Wykaz Rozbieżności", image=self.icon_start,
             font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
             fg_color="#0067C0", hover_color="#005A9E", height=44, corner_radius=6,
-            command=self.start_mietek_rozbieznosci_pipeline,
+            command=lambda: self.start_mietek_rozbieznosci_pipeline(bez_nazwisk=False),
         )
-        self.mietek_rozb_start_btn.grid(row=1, column=0, padx=20, pady=(5, 20), sticky="ew")
+        self.mietek_rozb_start_btn.grid(row=0, column=0, padx=(0, 5), sticky="ew")
 
-    def start_mietek_rozbieznosci_pipeline(self):
+        self.mietek_rozb_bez_nazwisk_btn = ctk.CTkButton(
+            btn_frame, text="Bez Nazwisk", image=self.icon_start,
+            font=ctk.CTkFont(family="Segoe UI", size=15, weight="bold"),
+            fg_color="#8B0000", hover_color="#A52A2A", height=44, corner_radius=6,
+            command=lambda: self.start_mietek_rozbieznosci_pipeline(bez_nazwisk=True),
+        )
+        self.mietek_rozb_bez_nazwisk_btn.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+        add_tooltip(
+            self.mietek_rozb_bez_nazwisk_btn,
+            "Generuje identyczną tabelę, ale z pustą kolumną właściciela. "
+            "Plik zapisuje się z dopiskiem '_BEZ NAZWISK', więc nie nadpisze wersji pełnej.",
+        )
+
+    def start_mietek_rozbieznosci_pipeline(self, bez_nazwisk=False):
         mietki_dir = self.mietek_rozb_mietki_entry.get().strip() if self.mietek_rozb_mietki_entry else ""
         excel_dir = self.mietek_rozb_excel_entry.get().strip() if self.mietek_rozb_excel_entry else ""
         out_dir = self.mietek_rozb_out_entry.get().strip() if self.mietek_rozb_out_entry else ""
@@ -8019,15 +8042,49 @@ class ModernApp(ctk.CTk):
 
         self.last_output_dir = Path(out_dir)
         self._disable_ui_for_process()
-        self.log(f"[WYKAZ ROZBIEŻNOŚCI] URUCHOMIENIE\nMIETKI: {mietki_dir}\nEXCEL: {excel_dir}")
+        tryb = "BEZ NAZWISK" if bez_nazwisk else "PEŁNY"
+        self.log(f"[WYKAZ ROZBIEŻNOŚCI - {tryb}] URUCHOMIENIE\nMIETKI: {mietki_dir}\nEXCEL: {excel_dir}")
         self.set_progress(0)
         threading.Thread(
             target=self.run_mietek_rozbieznosci_thread,
-            args=(mietki_dir, excel_dir, out_dir),
+            args=(mietki_dir, excel_dir, out_dir, bez_nazwisk),
             daemon=True,
         ).start()
 
-    def run_mietek_rozbieznosci_thread(self, mietki_dir_str, excel_dir_str, out_dir_str):
+    def read_wsie_nazwa(self, dbf_path):
+        """Zwraca nazwę obrębu z WSIE.DBF (pole NAZWA pierwszego rekordu,
+        czyli odpowiednik 'komórki A2'). Szuka WSIE.DBF obok pliku D*.DBF
+        oraz rekurencyjnie w folderze obrębu. Zwraca None, gdy nie znaleziono."""
+        try:
+            start_dir = Path(dbf_path).parent
+            root = start_dir.parent if start_dir.name.upper().endswith(".001") else start_dir
+
+            candidates = [start_dir / "WSIE.DBF", root / "WSIE.DBF"]
+            try:
+                candidates.extend(root.rglob("WSIE.DBF"))
+                candidates.extend(root.rglob("wsie.dbf"))
+            except Exception:
+                pass
+
+            seen = set()
+            for cand in candidates:
+                key = str(cand).upper()
+                if key in seen or not cand.exists():
+                    continue
+                seen.add(key)
+                try:
+                    fields, records = self.read_dbf(str(cand))
+                    if records:
+                        nazwa = str(records[0].get('NAZWA', '')).strip()
+                        if nazwa:
+                            return nazwa
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return None
+
+    def run_mietek_rozbieznosci_thread(self, mietki_dir_str, excel_dir_str, out_dir_str, bez_nazwisk=False):
         try:
             self.update_status("Porównywanie DBF z Ewidencją i generowanie...", "#0078D7")
             mietki_dir = Path(mietki_dir_str)
@@ -8080,12 +8137,12 @@ class ModernApp(ctk.CTk):
             for idx, path_xls in enumerate(xls_files, start=1):
                 self.check_stop()
 
-                nazwa_wsi = re.sub(r'(?i)_?rozliczone.*$', '', path_xls.stem).strip()
-                if not nazwa_wsi:
-                    nazwa_wsi = path_xls.stem
+                nazwa_wsi_fallback = re.sub(r'(?i)_?rozliczone.*$', '', path_xls.stem).strip()
+                if not nazwa_wsi_fallback:
+                    nazwa_wsi_fallback = path_xls.stem
 
-                self.progress_current_file = nazwa_wsi
-                v_norm = re.sub(r'[\s_\-]', '', nazwa_wsi.lower())
+                self.progress_current_file = nazwa_wsi_fallback
+                v_norm = re.sub(r'[\s_\-]', '', nazwa_wsi_fallback.lower())
 
                 # 1. SZUKANIE DBF
                 target_dbf = None
@@ -8100,10 +8157,14 @@ class ModernApp(ctk.CTk):
                     target_dbf = all_dbfs[0]
 
                 if not target_dbf:
-                    self.log(f"  ⚠️ {nazwa_wsi}: brak dopasowanego pliku D*.DBF (zignorowano).")
+                    self.log(f"  ⚠️ {nazwa_wsi_fallback}: brak dopasowanego pliku D*.DBF (zignorowano).")
                     stat_brak_dbf += 1
-                    self.set_progress(idx / total, current_file=nazwa_wsi, current=idx)
+                    self.set_progress(idx / total, current_file=nazwa_wsi_fallback, current=idx)
                     continue
+
+                # 1b. NAZWA WSI Z WSIE.DBF (pole NAZWA = 'komórka A2'), fallback: nazwa pliku XLS
+                nazwa_wsi = self.read_wsie_nazwa(target_dbf) or nazwa_wsi_fallback
+                self.progress_current_file = nazwa_wsi
 
                 try:
                     # 2. ODCZYT DBF (aktualna powierzchnia lasu)
@@ -8122,7 +8183,7 @@ class ModernApp(ctk.CTk):
                     else:
                         df_dbf = pd.DataFrame(columns=['nr_dz', 'J. rej. norm', 'pow_aktualna'])
 
-                    # 3. ODCZYT EXCELA (Ewidencja)  <-- TEGO BRAKOWAŁO
+                    # 3. ODCZYT EXCELA (Ewidencja)
                     try:
                         tabela_xls, df_full = wczytaj_i_przetworz_wlascicieli(str(path_xls))
                     except Exception as ex:
@@ -8215,6 +8276,20 @@ class ModernApp(ctk.CTk):
                             'po zmianie': pow_akt
                         })
 
+                    # 5b. SORTOWANIE PO J. REJ. ROSNĄCO (numerycznie)
+                    def _sort_key(rec):
+                        try:
+                            return (0, int(float(str(rec.get('J. rej.', '0')).strip())))
+                        except Exception:
+                            return (1, str(rec.get('J. rej.', '')))
+
+                    pelny_wykaz_filtrowany.sort(key=_sort_key)
+
+                    # 5c. TRYB BEZ NAZWISK - pusta kolumna właściciela
+                    if bez_nazwisk:
+                        for rec in pelny_wykaz_filtrowany:
+                            rec['właściciel'] = ""
+
                     # 6. ZAPIS DO EXCELA NA BAZIE SZABLONU
                     if pelny_wykaz_filtrowany:
                         import openpyxl
@@ -8260,7 +8335,8 @@ class ModernApp(ctk.CTk):
                                         if col in [4, 5, 6, 7]:
                                             cell.number_format = '0.0000'
 
-                                rozbieznosci_output = out_dir / f"{nazwa_wsi}_WYKAZ ROZBIEZNOSCI.xlsx"
+                                suffix = "_WYKAZ ROZBIEZNOSCI_BEZ NAZWISK.xlsx" if bez_nazwisk else "_WYKAZ ROZBIEZNOSCI.xlsx"
+                                rozbieznosci_output = out_dir / f"{nazwa_wsi}{suffix}"
                                 wb_template.save(str(rozbieznosci_output))
                                 self.log(f"  ✅ Utworzono Wykaz Rozbieżności: {rozbieznosci_output.name}")
                                 stat_sukces += 1
